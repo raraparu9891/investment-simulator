@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+body {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* number input のスピナーを非表示 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
