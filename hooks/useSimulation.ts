@@ -2,11 +2,12 @@
 
 import { useMemo } from "react";
 import { educationCostAt, examCostAt } from "@/lib/education";
-import { portfolioCovariance, portfolioStats } from "@/lib/funds";
+import { allocationsToFunds, portfolioCovariance, portfolioStats, shortName } from "@/lib/funds";
 import { loanSchedule } from "@/lib/loan";
 import { grossAt, netOf, pensionOf } from "@/lib/income";
 import { occursAt } from "@/lib/spot";
 import type {
+  Fund,
   LifeEvent,
   Person,
   SimulationInput,
@@ -104,6 +105,17 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
     const spotCost = spots.reduce((s, e) => s + e.amount, 0);
     spots.forEach((e) => yearEvents.push({ kind: "spot", text: e.label || "スポット支出" }));
 
+    // 開始時点で既に過ぎている targetAge は初年度に実行する
+    for (const rb of investment.rebalances ?? []) {
+      if (rb.targetAge === age || (t === 0 && rb.targetAge < age)) {
+        const mix = rb.allocations
+          .filter((a) => a.percentage > 0)
+          .map((a) => `${shortName(a.fundId)} ${a.percentage}%`)
+          .join("・");
+        yearEvents.push({ kind: "rebalance", text: `リバランス実行（${mix || "配分なし"}）` });
+      }
+    }
+
     const totalExpense = livingCost + educationCost + loanPayment + spotCost;
 
     const rule = [...investment.rules]
@@ -146,9 +158,11 @@ interface AssetYear {
 /**
  * returnAt(t) は [現在のポートフォリオの利回り, 積立ポートフォリオの利回り] を返す。
  * 2つの口座は別々に複利運用し、取り崩しは残高の比率で按分する。
+ * phases[t].rebalance の年は期首に2口座を合算して新しい配分へ移す（非課税スイッチング）。
  */
 function projectAssets(
   cashflows: YearCashflow[],
+  phases: Phase[],
   initialCash: number,
   initialInvested: number,
   returnAt: (t: number) => [number, number],
@@ -158,6 +172,11 @@ function projectAssets(
   let neu = 0;
 
   return cashflows.map((cf, t) => {
+    if (phases[t]?.rebalance) {
+      // 新しい配分で運用する口座へ全額を移す。以後の積立も同じ配分なので口座を分ける意味はない
+      cur += neu;
+      neu = 0;
+    }
     const [rCur, rNew] = returnAt(t);
     cash += cf.netCashflow;
 
@@ -188,6 +207,72 @@ function projectAssets(
       investedNew: neu,
       invested: cur + neu,
     };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 2.5 ポートフォリオのフェーズ（リバランスで切り替わる）
+// ---------------------------------------------------------------------------
+
+interface PhaseStats {
+  label: string;
+  current: ReturnType<typeof portfolioStats>;
+  contribution: ReturnType<typeof portfolioStats>;
+  muA: number;
+  muB: number;
+  sA: number;
+  sB: number;
+  rho: number;
+  rhoC: number;
+  driftA: number;
+  driftB: number;
+}
+
+interface Phase extends PhaseStats {
+  rebalance: boolean;
+}
+
+function phaseStats(label: string, curFunds: Fund[], newFunds: Fund[]): PhaseStats {
+  const current = portfolioStats(curFunds);
+  const contribution = portfolioStats(newFunds);
+  const muA = Math.max(finite(current.expectedReturn) / 100, -0.99);
+  const muB = Math.max(finite(contribution.expectedReturn) / 100, -0.99);
+  const sA = Math.max(finite(current.risk) / 100, 0);
+  const sB = Math.max(finite(contribution.risk) / 100, 0);
+  // 2つのポートフォリオは同じ市場で動くので相関を持たせる
+  const cov = portfolioCovariance(curFunds, newFunds) / 10000;
+  const rho = sA > 0 && sB > 0 ? Math.max(-1, Math.min(1, cov / (sA * sB))) : 0;
+  return {
+    label,
+    current,
+    contribution,
+    muA,
+    muB,
+    sA,
+    sB,
+    rho,
+    rhoC: Math.sqrt(Math.max(0, 1 - rho * rho)),
+    // GBM: 1年の価格比 = exp(ln(1+μ) − σ²/2 + σZ)  → 期待値が 1+μ になる
+    driftA: Math.log(1 + muA) - (sA * sA) / 2,
+    driftB: Math.log(1 + muB) - (sB * sB) / 2,
+  };
+}
+
+/** 各年に適用するポートフォリオ。targetAge に達した年にリバランスし、既存資産・積立とも新配分になる */
+function buildPhases(input: SimulationInput, cashflows: YearCashflow[]): Phase[] {
+  const { investment } = input;
+  const queue = [...(investment.rebalances ?? [])].sort((a, b) => a.targetAge - b.targetAge);
+  let stats = phaseStats("初期設定", investment.currentFunds, investment.contributionFunds);
+  let next = 0;
+  return cashflows.map((cf) => {
+    let rebalance = false;
+    while (next < queue.length && queue[next].targetAge <= cf.age) {
+      const rb = queue[next++];
+      const funds = allocationsToFunds(rb.allocations);
+      stats = phaseStats(`${Math.max(rb.targetAge, cashflows[0].age)}歳〜`, funds, funds);
+      rebalance = true;
+    }
+    return { ...stats, rebalance };
   });
 }
 
@@ -271,31 +356,21 @@ export function runSimulation(
   normals: Float64Array[],
 ): { rows: YearResult[]; summary: SimulationSummary } {
   const { basic, self, investment } = input;
-  const current = portfolioStats(investment.currentFunds);
-  const contribution = portfolioStats(investment.contributionFunds);
-  const muA = Math.max(finite(current.expectedReturn) / 100, -0.99);
-  const muB = Math.max(finite(contribution.expectedReturn) / 100, -0.99);
-  const sA = Math.max(finite(current.risk) / 100, 0);
-  const sB = Math.max(finite(contribution.risk) / 100, 0);
-  // 2つのポートフォリオは同じ市場で動くので相関を持たせる
-  const cov = portfolioCovariance(investment.currentFunds, investment.contributionFunds) / 10000;
-  const rho = sA > 0 && sB > 0 ? Math.max(-1, Math.min(1, cov / (sA * sB))) : 0;
-  const rhoC = Math.sqrt(Math.max(0, 1 - rho * rho));
+  const phases = buildPhases(input, cashflows);
+  const initial = phases[0] ?? phaseStats("初期設定", investment.currentFunds, investment.contributionFunds);
 
-  // 期待リターン一定のシナリオ
-  const base = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, () => [muA, muB]);
+  // 期待リターン一定のシナリオ（フェーズごとの期待リターン）
+  const base = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => [phases[t].muA, phases[t].muB]);
 
-  // GBM: 1年の価格比 = exp(ln(1+μ) − σ²/2 + σZ)  → 期待値が 1+μ になる
-  const driftA = Math.log(1 + muA) - (sA * sA) / 2;
-  const driftB = Math.log(1 + muB) - (sB * sB) / 2;
   const years = cashflows.length;
   const totalsByYear: number[][] = cashflows.map(() => []);
   let successes = 0;
   for (const z of normals) {
-    const path = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, (t) => {
+    const path = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => {
+      const p = phases[t];
       const z1 = z[t] ?? 0;
-      const z2 = rho * z1 + rhoC * (z[years + t] ?? 0);
-      return [Math.exp(driftA + sA * z1) - 1, Math.exp(driftB + sB * z2) - 1];
+      const z2 = p.rho * z1 + p.rhoC * (z[years + t] ?? 0);
+      return [Math.exp(p.driftA + p.sA * z1) - 1, Math.exp(p.driftB + p.sB * z2) - 1];
     });
     let ok = true;
     path.forEach((p, t) => {
@@ -320,6 +395,12 @@ export function runSimulation(
       ...cf,
       ...base[t],
       totalAssets: total,
+      portfolioLabel: phases[t].label,
+      rebalanced: phases[t].rebalance,
+      returnCurrent: phases[t].current.expectedReturn,
+      returnNew: phases[t].contribution.expectedReturn,
+      riskCurrent: phases[t].current.risk,
+      riskNew: phases[t].contribution.risk,
       fixedReturnAssets: total,
       mcMedian: bands[t].median,
       mcPlus2Sigma: bands[t].plus2,
@@ -334,8 +415,8 @@ export function runSimulation(
   return {
     rows,
     summary: {
-      current,
-      contribution,
+      current: initial.current,
+      contribution: initial.contribution,
       assetsAtRetirement: retireRow?.totalAssets ?? 0,
       finalAssets: last?.totalAssets ?? 0,
       minAssets: minRow?.totalAssets ?? 0,

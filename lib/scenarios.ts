@@ -57,6 +57,8 @@ export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
   if (inv.funds && !raw.investment?.currentFunds) inv.currentFunds = inv.funds;
   if (inv.funds && !raw.investment?.contributionFunds) inv.contributionFunds = inv.funds;
   delete inv.funds;
+  // 既定値のリバランス例を古いシナリオに混ぜない
+  inv.rebalances = raw.investment?.rebalances ?? [];
   return {
     basic: { ...d.basic, ...raw.basic },
     self: mergePerson(raw.self, d.self),

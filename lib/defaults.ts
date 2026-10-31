@@ -87,5 +87,15 @@ export const DEFAULT_INPUT: SimulationInput = {
       { id: "r-1", fromAge: 50, toAge: 59, amount: 60 },
       { id: "r-2", fromAge: 65, toAge: 100, amount: 0 },
     ],
+    rebalances: [
+      {
+        id: "rb-1",
+        targetAge: 60,
+        allocations: [
+          { id: "al-1", fundId: "acwi", percentage: 60 },
+          { id: "al-2", fundId: "cash", percentage: 40 },
+        ],
+      },
+    ],
   },
 };

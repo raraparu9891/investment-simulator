@@ -102,11 +102,25 @@ export interface ContributionRule {
   amount: number;
 }
 
+export interface Allocation {
+  id: string;
+  fundId: string; // FUND_PRESETS の id
+  percentage: number;
+}
+
+/** targetAge（本人）に全運用資産を allocations の割合へ再配分し、以後の積立もこの配分にする */
+export interface RebalanceEvent {
+  id: string;
+  targetAge: number;
+  allocations: Allocation[];
+}
+
 export interface InvestmentSettings {
   currentFunds: Fund[]; // 現在のポートフォリオ（運用中の資産の配分）
   contributionFunds: Fund[]; // これからの積立の配分
   baseContribution: number;
   rules: ContributionRule[];
+  rebalances: RebalanceEvent[];
 }
 
 export interface SimulationInput {
@@ -120,7 +134,7 @@ export interface SimulationInput {
   investment: InvestmentSettings;
 }
 
-export type EventKind = "retire" | "work" | "pension" | "school" | "spot" | "loan";
+export type EventKind = "retire" | "work" | "pension" | "school" | "spot" | "loan" | "rebalance";
 export interface LifeEvent {
   kind: EventKind;
   text: string;
@@ -152,6 +166,13 @@ export interface YearResult extends YearCashflow {
   investedNew: number; // 新規積立分
   invested: number;
   totalAssets: number;
+  // その年に適用しているポートフォリオ（リバランスで切り替わる）
+  portfolioLabel: string; // "初期設定" / "60歳〜" など
+  rebalanced: boolean; // この年の期首にリバランスを実行した
+  returnCurrent: number; // 期待リターン（%）: 既存資産
+  returnNew: number; // 期待リターン（%）: 積立分
+  riskCurrent: number; // リスク σ（%）
+  riskNew: number;
   // 固定リターン（期待リターンのみで複利運用）の総資産。totalAssets と同値で、グラフの基準線用
   fixedReturnAssets: number;
   // モンテカルロの総資産（±2σ はパーセンタイル換算: 上位/下位 約2.3%）

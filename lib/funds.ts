@@ -1,4 +1,4 @@
-import type { Fund, PortfolioStats } from "./types";
+import type { Allocation, Fund, PortfolioStats } from "./types";
 
 export type AssetClass = "equity" | "gold" | "cash";
 
@@ -21,6 +21,15 @@ export const FUND_PRESETS: FundPreset[] = [
 ];
 
 export const presetOf = (id: string) => FUND_PRESETS.find((p) => p.id === id) ?? FUND_PRESETS[0];
+
+/** 表示用の短い名前（括弧内の説明を除く） */
+export const shortName = (id: string) => presetOf(id).name.replace(/（.*）/, "");
+
+export const allocationsToFunds = (a: Allocation[]): Fund[] =>
+  a.map((x) => ({ id: x.id, presetId: x.fundId, ratio: x.percentage }));
+
+export const fundsToAllocations = (f: Fund[]): Allocation[] =>
+  f.map((x) => ({ id: x.id, fundId: x.presetId, percentage: x.ratio }));
 
 /** 資産クラス間の相関係数（簡易仮定） */
 function correlation(a: FundPreset, b: FundPreset) {

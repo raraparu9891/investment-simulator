@@ -4,6 +4,7 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   Baby,
   CalendarClock,
+  Shuffle,
   HeartHandshake,
   PiggyBank,
   PieChart,
@@ -15,9 +16,9 @@ import {
 } from "lucide-react";
 import { uid } from "@/lib/defaults";
 import { EDUCATION_COST, EXAMS } from "@/lib/education";
-import { FUND_PRESETS, portfolioStats, presetOf } from "@/lib/funds";
+import { FUND_PRESETS, allocationsToFunds, fundsToAllocations, portfolioStats, presetOf } from "@/lib/funds";
 import { occurrenceAges } from "@/lib/spot";
-import type { Child, Fund, Person, SchoolType, SimulationInput, SpotEvent, UniversityType } from "@/lib/types";
+import type { Child, Fund, Person, RebalanceEvent, SchoolType, SimulationInput, SpotEvent, UniversityType } from "@/lib/types";
 import MortgageSection from "./MortgageSection";
 import PersonSection from "./PersonSection";
 import ScenarioBar from "./ScenarioBar";
@@ -341,6 +342,57 @@ export default function InputPanel({ input, setInput }: Props) {
           <Plus size={16} /> 区間を追加
         </AddButton>
         <p className="text-[11px] text-slate-400">現預金が不足して取り崩す場合は、①②の残高の比率で按分して取り崩します。</p>
+
+        {/* リバランス */}
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+          <Shuffle size={14} className="text-violet-500" /> 年齢に応じたリバランス（ターゲット・イヤー設定）
+        </div>
+        <p className="-mt-2 text-[11px] text-slate-400">
+          実行年齢の期首に①②の運用資産をすべて合算し、新しい割合で再配分します（非課税スイッチングとして計算）。以後の積立もこの割合で行います。
+        </p>
+        {[...(investment.rebalances ?? [])].sort((a, b) => a.targetAge - b.targetAge).map((rb) => {
+          const update = (v: Partial<RebalanceEvent>) =>
+            patch("investment", { rebalances: investment.rebalances.map((x) => (x.id === rb.id ? { ...x, ...v } : x)) });
+          const stats = portfolioStats(allocationsToFunds(rb.allocations));
+          return (
+            <div key={rb.id} className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
+              <div className="flex items-end gap-2">
+                <div className="w-28">
+                  <NumberField label="実行年齢" unit="歳" min={self.currentAge} value={rb.targetAge}
+                    onChange={(v) => update({ targetAge: v })} />
+                </div>
+                <div className="flex-1 pb-2 text-[11px] text-violet-700">
+                  {rb.targetAge}歳以降: 期待リターン {stats.expectedReturn.toFixed(1)}% ／ σ{stats.risk.toFixed(1)}%
+                  {rb.targetAge <= self.currentAge && <span className="block text-amber-600">現在の年齢以下のため、初年度に実行します</span>}
+                </div>
+                <button type="button"
+                  onClick={() => patch("investment", { rebalances: investment.rebalances.filter((x) => x.id !== rb.id) })}
+                  className="mb-1 rounded-md px-2 py-1.5 text-xs text-slate-400 hover:bg-rose-50 hover:text-rose-500">
+                  削除
+                </button>
+              </div>
+              <FundList funds={allocationsToFunds(rb.allocations)}
+                onChange={(f) => update({ allocations: fundsToAllocations(f) })} />
+            </div>
+          );
+        })}
+        <AddButton
+          onClick={() => {
+            const last = [...(investment.rebalances ?? [])].sort((a, b) => a.targetAge - b.targetAge).pop();
+            patch("investment", {
+              rebalances: [
+                ...(investment.rebalances ?? []),
+                {
+                  id: uid(),
+                  targetAge: last ? last.targetAge + 5 : Math.max(self.currentAge + 1, 55),
+                  // 直前の配分（なければ積立の配分）を複製して編集してもらう
+                  allocations: (last?.allocations ?? fundsToAllocations(investment.contributionFunds)).map((a) => ({ ...a, id: uid() })),
+                },
+              ],
+            });
+          }}>
+          <Plus size={16} /> リバランスを追加
+        </AddButton>
       </Section>
     </div>
   );

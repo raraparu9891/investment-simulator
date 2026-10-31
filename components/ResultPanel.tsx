@@ -33,6 +33,7 @@ import {
   LogOut,
   Repeat,
   ShoppingBag,
+  Shuffle,
   Table2,
   TrendingUp,
   Wallet,
@@ -51,6 +52,7 @@ const C = {
   investedNew: "#38bdf8",
   cash: "#eb6834",
   loan: "#64748b",
+  rebalance: "#7c3aed",
   income: "#1baf7a",
   living: "#6250d6",
   education: "#e87ba4",
@@ -68,6 +70,7 @@ const EVENT_ICON: Record<EventKind, { icon: LucideIcon; cls: string }> = {
   school: { icon: GraduationCap, cls: "bg-pink-50 text-pink-700" },
   spot: { icon: ShoppingBag, cls: "bg-amber-50 text-amber-700" },
   loan: { icon: Home, cls: "bg-slate-100 text-slate-700" },
+  rebalance: { icon: Shuffle, cls: "bg-violet-50 text-violet-700" },
 };
 
 type AssetMode = "total" | "breakdown";
@@ -110,6 +113,24 @@ function TipRow({ color, label, value, bold, dashed }: { color?: string; label: 
   );
 }
 
+const pct = (r: YearResult) =>
+  Math.abs(r.returnCurrent - r.returnNew) < 0.005 && Math.abs(r.riskCurrent - r.riskNew) < 0.005
+    ? `${r.returnCurrent.toFixed(1)}% / σ${r.riskCurrent.toFixed(1)}%`
+    : `既存 ${r.returnCurrent.toFixed(1)}%/σ${r.riskCurrent.toFixed(1)}% ・ 積立 ${r.returnNew.toFixed(1)}%/σ${r.riskNew.toFixed(1)}%`;
+
+/** その年に適用しているポートフォリオ（リバランスで切り替わる） */
+function PortfolioLine({ r }: { r: YearResult }) {
+  return (
+    <div className={`mt-1.5 rounded-md px-2 py-1 text-[11px] ${r.rebalanced ? "bg-violet-50 text-violet-700" : "bg-slate-50 text-slate-500"}`}>
+      <div className="flex items-center gap-1 font-medium">
+        <Shuffle size={11} /> ポートフォリオ: {r.portfolioLabel}
+        {r.rebalanced && <span className="ml-auto rounded bg-violet-600 px-1 text-[10px] text-white">この年に再配分</span>}
+      </div>
+      <div className="tabular-nums">{pct(r)}</div>
+    </div>
+  );
+}
+
 function AssetTooltip({ active, payload, mode }: TooltipProps<number, string> & { mode: AssetMode }) {
   if (!active || !payload?.length) return null;
   const r = payload[0].payload as YearResult;
@@ -119,12 +140,22 @@ function AssetTooltip({ active, payload, mode }: TooltipProps<number, string> & 
         <TipRow color={C.fixed} label="総資産（固定リターン）" value={r.fixedReturnAssets} bold />
       ) : (
         <>
-          <TipRow color={C.invested} label="運用（現在のポートフォリオ）" value={r.investedCurrent} />
-          <TipRow color={C.investedNew} label="運用（積立分）" value={r.investedNew} />
+          {r.portfolioLabel === "初期設定" ? (
+            <>
+              <TipRow color={C.invested} label="運用（現在のポートフォリオ）" value={r.investedCurrent} />
+              <TipRow color={C.investedNew} label="運用（積立分）" value={r.investedNew} />
+            </>
+          ) : (
+            <>
+              <TipRow color={C.invested} label="運用（再配分した資産）" value={r.investedCurrent} />
+              <TipRow color={C.investedNew} label="運用（再配分後の積立）" value={r.investedNew} />
+            </>
+          )}
           <TipRow color={C.cash} label="現預金" value={r.cash} />
           <TipRow label="総資産" value={r.totalAssets} bold />
         </>
       )}
+      <PortfolioLine r={r} />
     </TooltipShell>
   );
 }
@@ -137,6 +168,7 @@ function McTooltip({ active, payload }: TooltipProps<number, string>) {
       <TipRow color={C.mcPlus} dashed label="+2σ（上位 約2.3%）" value={r.mcPlus2Sigma} />
       <TipRow color={C.mcMedian} label="中央値" value={r.mcMedian} bold />
       <TipRow color={C.mcMinus} dashed label="−2σ（下位 約2.3%）" value={r.mcMinus2Sigma} />
+      <PortfolioLine r={r} />
     </TooltipShell>
   );
 }
@@ -246,6 +278,11 @@ export default function ResultPanel({
   const spotAges = rows.filter((r) => r.spotCost > 0).map((r) => r.age);
   // 毎年の繰り返し支出などで多すぎる場合は目印線を省く
   const eventAges = spotAges.length <= 12 ? spotAges : [];
+  const rebalanceAges = rows.filter((r) => r.rebalanced).map((r) => r.age);
+  const rebalanceLines = rebalanceAges.map((a) => (
+    <ReferenceLine key={`rb-${a}`} x={a} stroke={C.rebalance} strokeDasharray="4 3" strokeOpacity={0.7}
+      label={{ value: "リバランス", position: "insideTopLeft", fontSize: 10, fill: C.rebalance }} />
+  ));
   const lastAge = rows[rows.length - 1]?.age ?? "-";
   const success = summary.successRate * 100;
 
@@ -307,6 +344,7 @@ export default function ResultPanel({
                       {eventAges.map((a) => (
                         <ReferenceLine key={a} x={a} stroke="#cbd5e1" strokeDasharray="2 3" />
                       ))}
+                      {rebalanceLines}
                       {assetMode === "total" ? (
                         <Line dataKey="fixedReturnAssets" name="総資産（固定リターン）" type="monotone"
                           stroke={C.fixed} strokeWidth={3} dot={false} isAnimationActive={false}
@@ -365,6 +403,7 @@ export default function ResultPanel({
                     <XAxis dataKey="age" tick={axisTick} tickLine={false} axisLine={{ stroke: "#cbd5e1" }} unit="歳" minTickGap={16} />
                     <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={yTick} width={56} />
                     <Tooltip content={<McTooltip />} cursor={{ stroke: "#94a3b8", strokeWidth: 1 }} />
+                    {rebalanceLines}
                     <Legend iconType="plainline" iconSize={14} wrapperStyle={{ fontSize: 12 }} />
                     <ReferenceLine y={0} stroke="#94a3b8" />
                     <ReferenceLine x={retirementAge} stroke="#64748b" strokeDasharray="6 4"
@@ -463,6 +502,18 @@ const GROUPS: Group[] = [
       { key: "cash", label: "現預金", render: (r) => <Num v={r.cash} /> },
       { key: "inv", label: "運用資産", render: (r) => <Num v={r.invested} /> },
       { key: "total", label: "総資産(固定)", total: true, render: (r) => <Num v={r.fixedReturnAssets} bold /> },
+      {
+        key: "pf", label: "期待リターン",
+        render: (r) => (
+          <span className={`inline-flex items-center gap-1 ${r.rebalanced ? "font-semibold text-violet-700" : "text-slate-500"}`}
+            title={`ポートフォリオ: ${r.portfolioLabel}（${pct(r)}）`}>
+            {r.rebalanced && <Shuffle size={11} />}
+            {Math.abs(r.returnCurrent - r.returnNew) < 0.005
+              ? `${r.returnCurrent.toFixed(1)}%`
+              : `${r.returnCurrent.toFixed(1)}/${r.returnNew.toFixed(1)}%`}
+          </span>
+        ),
+      },
     ],
   },
   {
