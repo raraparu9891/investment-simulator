@@ -1,9 +1,9 @@
 "use client";
 
-import { Calculator, Landmark, Plus, type LucideIcon } from "lucide-react";
+import { Calculator, Landmark, Plus, TrendingUp, type LucideIcon } from "lucide-react";
 import { uid } from "@/lib/defaults";
-import { calculateNetIncomeDetail, estimatePension } from "@/lib/income";
-import type { Employment, Person, WorkChangeType } from "@/lib/types";
+import { calculateNetIncomeDetail, estimatePension, grossAt } from "@/lib/income";
+import type { Employment, Person, Promotion, WorkChangeType } from "@/lib/types";
 import { AddButton, ItemCard, NumberField, Section, SelectField, SubHeading, Toggle } from "./ui";
 
 const changeOptions: { value: WorkChangeType; label: string }[] = [
@@ -15,6 +15,11 @@ const changeOptions: { value: WorkChangeType; label: string }[] = [
 const employmentOptions: { value: Employment; label: string }[] = [
   { value: "employee", label: "会社員・公務員" },
   { value: "self", label: "自営業・フリーランス" },
+];
+
+const promotionModeOptions: { value: Promotion["mode"]; label: string }[] = [
+  { value: "increase", label: "増加額で指定" },
+  { value: "amount", label: "昇進後の年収で指定" },
 ];
 
 const yen = (v: number) => `${Math.round(v).toLocaleString()}万`;
@@ -42,6 +47,9 @@ export default function PersonSection({
 
   const updateChange = (id: string, v: Partial<Person["changes"][number]>) =>
     onChange({ changes: person.changes.map((x) => (x.id === id ? { ...x, ...v } : x)) });
+  const promotions = person.promotions ?? [];
+  const updatePromotion = (id: string, v: Partial<Promotion>) =>
+    onChange({ promotions: promotions.map((x) => (x.id === id ? { ...x, ...v } : x)) });
 
   return (
     <Section
@@ -107,6 +115,40 @@ export default function PersonSection({
 
           <NumberField label="完全リタイア年齢" unit="歳" value={person.retirementAge}
             onChange={(v) => onChange({ retirementAge: v })} hint="この年齢以降は就労収入 0" />
+
+          {/* 昇進 */}
+          <SubHeading>昇進による昇給（{title.replace(/の.*$/, "")}の年齢）</SubHeading>
+          {[...promotions].sort((a, b) => a.age - b.age).map((p) => {
+            const before = grossAt({ ...person, promotions: promotions.filter((x) => x.id !== p.id) }, p.age);
+            const after = grossAt(person, p.age);
+            return (
+              <ItemCard key={p.id} onRemove={() => onChange({ promotions: promotions.filter((x) => x.id !== p.id) })}>
+                <div className="grid grid-cols-3 gap-2">
+                  <NumberField label="昇進予定年齢" unit="歳" min={person.currentAge} value={p.age}
+                    onChange={(v) => updatePromotion(p.id, { age: v })} />
+                  <SelectField label="指定方法" value={p.mode} options={promotionModeOptions}
+                    onChange={(v) => updatePromotion(p.id, { mode: v, value: v === "amount" ? Math.round(after) : Math.round(after - before) })} />
+                  <NumberField label={p.mode === "amount" ? "昇進後の額面" : "年収の増加額"} unit="万円" step={10} value={p.value}
+                    onChange={(v) => updatePromotion(p.id, { value: v })} />
+                </div>
+                <p className="mt-1.5 flex items-center gap-1 text-[11px] text-slate-500">
+                  <TrendingUp size={12} className="text-emerald-500" />
+                  {p.age >= person.retirementAge || p.age < person.currentAge
+                    ? "就労期間外のため反映されません"
+                    : `${p.age}歳の額面: ${yen(before)} → ${yen(after)}（以後は昇給率で増加）`}
+                </p>
+              </ItemCard>
+            );
+          })}
+          <AddButton
+            onClick={() =>
+              onChange({
+                promotions: [...promotions, { id: uid(), age: person.currentAge + 5, mode: "increase", value: 100 }],
+              })
+            }
+          >
+            <Plus size={16} /> 昇進予定を追加
+          </AddButton>
 
           {/* 働き方の変化 */}
           <SubHeading>働き方の変化（{title.replace(/の.*$/, "")}の年齢）</SubHeading>

@@ -13,6 +13,7 @@ const self: Person = {
   netIncome: 530,
   retirementAge: 65,
   changes: [{ id: "wc-1", age: 60, type: "jobchange", grossIncome: 450 }],
+  promotions: [{ id: "pr-1", age: 42, mode: "increase", value: 100 }],
   pensionStartAge: 65,
   pensionAuto: true,
   pension: 200,
@@ -28,6 +29,7 @@ const spouse: Person = {
   netIncome: 350,
   retirementAge: 60,
   changes: [{ id: "wc-2", age: 36, type: "parttime", grossIncome: 120 }],
+  promotions: [],
   pensionStartAge: 65,
   pensionAuto: true,
   pension: 80,
@@ -45,16 +47,27 @@ export const DEFAULT_INPUT: SimulationInput = {
     livingCost: 420,
     inflationRate: 2,
   },
+  mortgage: {
+    enabled: false,
+    balance: 3000,
+    years: 30,
+    rate: 0.6,
+    rateChanges: [{ id: "rc-1", afterYears: 5, rate: 1.5 }],
+  },
   children: [
     {
       id: "ch-1",
       name: "第一子",
       currentAge: 3,
+      preschool: "public",
       elementary: "public",
       juniorHigh: "public",
       highSchool: "public",
       university: "private",
       graduate: "none",
+      examJuniorHigh: false,
+      examHighSchool: true,
+      examUniversity: true,
     },
   ],
   events: [
@@ -63,11 +76,12 @@ export const DEFAULT_INPUT: SimulationInput = {
     { id: "ev-3", label: "住宅リフォーム", amount: 500, isRecurring: false, startAge: 60, endAge: 60, interval: 1 },
   ],
   investment: {
-    funds: [
+    currentFunds: [
       { id: "f-1", presetId: "acwi", ratio: 60 },
       { id: "f-2", presetId: "sp500", ratio: 30 },
       { id: "f-3", presetId: "gold", ratio: 10 },
     ],
+    contributionFunds: [{ id: "f-4", presetId: "acwi", ratio: 100 }],
     baseContribution: 120,
     rules: [
       { id: "r-1", fromAge: 50, toAge: 59, amount: 60 },

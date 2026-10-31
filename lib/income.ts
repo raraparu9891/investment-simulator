@@ -69,25 +69,36 @@ export function calculateNetIncome(gross: number) {
 // 就労収入の推移
 // ---------------------------------------------------------------------------
 
-/** 指定年齢における額面年収（働き方の変化・退職を反映） */
+/** 指定年齢における額面年収（働き方の変化・昇進・退職を反映） */
 export function grossAt(person: Person, age: number) {
   if (age >= person.retirementAge) return 0;
-  const active = [...person.changes]
-    .sort((a, b) => a.age - b.age)
-    .filter((c) => c.age <= age)
-    .pop();
   const g = 1 + person.raiseRate / 100;
 
-  if (!active) return person.grossIncome * Math.pow(g, age - person.currentAge);
-  switch (active.type) {
-    case "retire":
-      return 0;
-    case "parttime":
-      return active.grossIncome;
-    case "jobchange":
-      // 転職後の年収を起点に昇給を継続
-      return active.grossIncome * Math.pow(g, age - active.age);
+  // 年収の「起点」: この年齢・額から昇給率で伸びる（grow=false なら固定）
+  let anchor = { age: person.currentAge, gross: person.grossIncome, grow: true };
+  const valueAt = (a: number) => (anchor.grow ? anchor.gross * Math.pow(g, a - anchor.age) : anchor.gross);
+
+  // 同じ年齢では働き方の変化 → 昇進の順に適用する
+  const steps = [
+    ...person.changes.map((c) => ({ age: c.age, order: 0, apply: () => {
+      if (c.type === "retire") anchor = { age: c.age, gross: 0, grow: false };
+      else if (c.type === "parttime") anchor = { age: c.age, gross: c.grossIncome, grow: false };
+      else anchor = { age: c.age, gross: c.grossIncome, grow: true }; // 転職後の年収を起点に昇給を継続
+    } })),
+    ...(person.promotions ?? [])
+      .filter((p) => p.age >= person.currentAge)
+      .map((p) => ({ age: p.age, order: 1, apply: () => {
+        if (anchor.gross <= 0 && !anchor.grow) return; // 退職後の昇進は無視
+        const gross = p.mode === "amount" ? p.value : valueAt(p.age) + p.value;
+        anchor = { age: p.age, gross: Math.max(0, gross), grow: anchor.grow };
+      } })),
+  ].sort((a, b) => a.age - b.age || a.order - b.order);
+
+  for (const s of steps) {
+    if (s.age > age) break;
+    s.apply();
   }
+  return valueAt(age);
 }
 
 /** 額面→手取り。手動入力時は「現在の手取り率」を将来の額面にも適用する */

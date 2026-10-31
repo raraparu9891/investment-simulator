@@ -27,6 +27,7 @@ import {
   Flag,
   GraduationCap,
   HandCoins,
+  Home,
   Landmark,
   Layers,
   LogOut,
@@ -47,7 +48,9 @@ const C = {
   mcPlus: "#38bdf8", // +2σ（楽観）
   mcMinus: "#ef4444", // −2σ（悲観）
   invested: "#2a78d6",
+  investedNew: "#38bdf8",
   cash: "#eb6834",
+  loan: "#64748b",
   income: "#1baf7a",
   living: "#6250d6",
   education: "#e87ba4",
@@ -64,6 +67,7 @@ const EVENT_ICON: Record<EventKind, { icon: LucideIcon; cls: string }> = {
   pension: { icon: Landmark, cls: "bg-emerald-50 text-emerald-700" },
   school: { icon: GraduationCap, cls: "bg-pink-50 text-pink-700" },
   spot: { icon: ShoppingBag, cls: "bg-amber-50 text-amber-700" },
+  loan: { icon: Home, cls: "bg-slate-100 text-slate-700" },
 };
 
 type AssetMode = "total" | "breakdown";
@@ -115,7 +119,8 @@ function AssetTooltip({ active, payload, mode }: TooltipProps<number, string> & 
         <TipRow color={C.fixed} label="総資産（固定リターン）" value={r.fixedReturnAssets} bold />
       ) : (
         <>
-          <TipRow color={C.invested} label="運用資産" value={r.invested} />
+          <TipRow color={C.invested} label="運用（現在のポートフォリオ）" value={r.investedCurrent} />
+          <TipRow color={C.investedNew} label="運用（積立分）" value={r.investedNew} />
           <TipRow color={C.cash} label="現預金" value={r.cash} />
           <TipRow label="総資産" value={r.totalAssets} bold />
         </>
@@ -169,7 +174,8 @@ function CashflowTooltip({ active, payload }: TooltipProps<number, string>) {
     <TooltipShell row={r}>
       <TipRow color={C.income} label="世帯収入（手取り）" value={r.totalIncome} />
       <TipRow color={C.living} label="生活費" value={r.livingCost} />
-      {r.educationCost > 0 && <TipRow color={C.education} label="教育費" value={r.educationCost} />}
+      {r.educationCost > 0 && <TipRow color={C.education} label="教育費（塾・受験含む）" value={r.educationCost} />}
+      {r.loanPayment > 0 && <TipRow color={C.loan} label="住宅ローン" value={r.loanPayment} />}
       {r.spotCost > 0 && <TipRow color={C.spot} label="スポット支出" value={r.spotCost} />}
       <div className="mt-1 border-t border-slate-100 pt-1">
         <TipRow label="年間収支" value={r.netCashflow} bold />
@@ -252,8 +258,9 @@ export default function ResultPanel({
         <Kpi icon={Flag} label={`${lastAge}歳時点の総資産（中央値）`} value={formatMan(summary.finalMedian)}
           sub={`−2σ ${formatMan(summary.finalMinus2Sigma)} 〜 +2σ ${formatMan(summary.finalPlus2Sigma)}`}
           tone={summary.finalMedian < 0 ? "bad" : "default"} />
-        <Kpi icon={TrendingUp} label="ポートフォリオ" value={`${summary.expectedReturn.toFixed(1)}% / σ${summary.portfolioRisk.toFixed(1)}%`}
-          sub="期待リターン / リスク（年率）" />
+        <Kpi icon={TrendingUp} label="期待リターン（現在 / 積立）"
+          value={`${summary.current.expectedReturn.toFixed(1)}% / ${summary.contribution.expectedReturn.toFixed(1)}%`}
+          sub={`リスク σ${summary.current.risk.toFixed(1)}% / σ${summary.contribution.risk.toFixed(1)}%（年率）`} />
         <Kpi icon={success >= 80 ? CheckCircle2 : AlertTriangle} label="資産が最後まで持つ確率"
           value={`${success.toFixed(0)}%`}
           tone={success >= 80 ? "good" : success >= 50 ? "warn" : "bad"}
@@ -279,7 +286,7 @@ export default function ResultPanel({
                   <div className="flex-1">
                     <h3 className="font-semibold text-slate-800">資産残高の推移（固定リターン）</h3>
                     <p className="text-xs text-slate-400">
-                      期待リターン {summary.expectedReturn.toFixed(1)}% が毎年続くと仮定した複利計算（万円）。破線は退職年齢。
+                      期待リターン（現在のポートフォリオ {summary.current.expectedReturn.toFixed(1)}% ／ 積立 {summary.contribution.expectedReturn.toFixed(1)}%）が毎年続くと仮定した複利計算（万円）。破線は退職年齢。
                     </p>
                   </div>
                   <Segmented value={assetMode} onChange={setAssetMode}
@@ -306,8 +313,10 @@ export default function ResultPanel({
                           activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }} />
                       ) : (
                         <>
-                          <Area type="monotone" dataKey="invested" name="運用資産" stackId="a" stroke={C.invested} strokeWidth={2}
+                          <Area type="monotone" dataKey="investedCurrent" name="運用（現在のポートフォリオ）" stackId="a" stroke={C.invested} strokeWidth={2}
                             fill={C.invested} fillOpacity={0.25} legendType="square" isAnimationActive={false} activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2 }} />
+                          <Area type="monotone" dataKey="investedNew" name="運用（積立分）" stackId="a" stroke={C.investedNew} strokeWidth={2}
+                            fill={C.investedNew} fillOpacity={0.25} legendType="square" isAnimationActive={false} activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2 }} />
                           <Area type="monotone" dataKey="cash" name="現預金" stackId="a" stroke={C.cash} strokeWidth={2}
                             fill={C.cash} fillOpacity={0.2} legendType="square" isAnimationActive={false} activeDot={{ r: 4, stroke: "#fff", strokeWidth: 2 }} />
                         </>
@@ -332,6 +341,7 @@ export default function ResultPanel({
                       <Bar dataKey="totalIncome" name="世帯収入" fill={C.income} radius={[3, 3, 0, 0]} />
                       <Bar dataKey="livingCost" name="生活費" stackId="exp" fill={C.living} stroke="#fff" strokeWidth={0.5} />
                       <Bar dataKey="educationCost" name="教育費" stackId="exp" fill={C.education} stroke="#fff" strokeWidth={0.5} />
+                      <Bar dataKey="loanPayment" name="住宅ローン" stackId="exp" fill={C.loan} stroke="#fff" strokeWidth={0.5} />
                       <Bar dataKey="spotCost" name="スポット支出" stackId="exp" fill={C.spot} stroke="#fff" strokeWidth={0.5} radius={[3, 3, 0, 0]} />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -343,7 +353,7 @@ export default function ResultPanel({
               <div className="mb-3">
                 <h3 className="font-semibold text-slate-800">資産残高の推移（モンテカルロ {summary.trials.toLocaleString()}回）</h3>
                 <p className="text-xs text-slate-400">
-                  リスク σ{summary.portfolioRisk.toFixed(1)}% で毎年のリターンをランダムに発生。
+                  リスク（現在 σ{summary.current.risk.toFixed(1)}% ／ 積立 σ{summary.contribution.risk.toFixed(1)}%）で毎年のリターンをランダムに発生。
                   実線＝中央値、破線＝+2σ（上位 約2.3%）／−2σ（下位 約2.3%）。2本の破線の間に約95%の結果が収まります。
                 </p>
               </div>
@@ -423,6 +433,7 @@ const GROUPS: Group[] = [
     cols: [
       { key: "living", label: "生活費", render: (r) => <Num v={r.livingCost} />, sum: sumOf("livingCost") },
       { key: "edu", label: "教育費", render: (r) => <Num v={r.educationCost} dashZero />, sum: sumOf("educationCost") },
+      { key: "loan", label: "住宅ローン", render: (r) => <Num v={r.loanPayment} dashZero />, sum: sumOf("loanPayment") },
       { key: "spot", label: "スポット", render: (r) => <Num v={r.spotCost} dashZero />, sum: sumOf("spotCost") },
       { key: "expense", label: "支出計", total: true, render: (r) => <Num v={r.totalExpense} bold />, sum: sumOf("totalExpense") },
     ],

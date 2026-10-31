@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { educationCostAt } from "@/lib/education";
-import { portfolioStats } from "@/lib/funds";
+import { educationCostAt, examCostAt } from "@/lib/education";
+import { portfolioCovariance, portfolioStats } from "@/lib/funds";
+import { loanSchedule } from "@/lib/loan";
 import { grossAt, netOf, pensionOf } from "@/lib/income";
 import { occursAt } from "@/lib/spot";
 import type {
@@ -22,6 +23,7 @@ const P_MINUS_2SIGMA = 0.02275;
 const P_PLUS_2SIGMA = 0.97725;
 
 const SCHOOL_LABEL = { public: "公立", private: "私立", none: "" } as const;
+const yen = (v: number) => `${Math.round(v).toLocaleString()}万`;
 const CHANGE_LABEL = { jobchange: "転職", parttime: "パート化", retire: "退職" } as const;
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,11 @@ function personYear(person: Person, age: number, who: string, events: LifeEvent[
       events.push({ kind: c.type === "retire" ? "retire" : "work", text });
     }
   }
+  for (const p of person.promotions ?? []) {
+    if (p.age === age && p.age >= person.currentAge && p.age < person.retirementAge) {
+      events.push({ kind: "work", text: `${who} 昇進（額面${yen(grossAt(person, age))}）` });
+    }
+  }
   if (age === person.retirementAge) events.push({ kind: "retire", text: `${who} 完全リタイア` });
   if (age === person.pensionStartAge) events.push({ kind: "pension", text: `${who} 年金受給開始` });
 
@@ -49,9 +56,10 @@ function personYear(person: Person, age: number, who: string, events: LifeEvent[
 }
 
 export function buildCashflows(input: SimulationInput): YearCashflow[] {
-  const { basic, self, spouse, expense, children, events, investment } = input;
+  const { basic, self, spouse, expense, mortgage, children, events, investment } = input;
   const rows: YearCashflow[] = [];
   const years = Math.min(120, Math.max(0, Math.round(basic.endAge - self.currentAge)));
+  const loan = loanSchedule(mortgage, years + 1);
 
   for (let t = 0; t <= years; t++) {
     const age = self.currentAge + t;
@@ -77,12 +85,26 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
           })`,
         });
       }
+      const exam = examCostAt(child, childAge);
+      educationCost += exam.cost * inflation;
+      if (exam.exam && exam.isFirstYear) {
+        yearEvents.push({ kind: "school", text: `${child.name} ${exam.exam.label}対策（塾）開始` });
+      }
+      if (exam.exam && exam.isExamYear) {
+        yearEvents.push({ kind: "school", text: `${child.name} ${exam.exam.label}` });
+      }
     }
+
+    const { payment: loanPayment, balance: loanBalance, rate, rateChanged, paidOff } = loan[t];
+    if (rateChanged) {
+      yearEvents.push({ kind: "loan", text: `ローン金利 ${rate}%に変更（年${yen(loanPayment)}）` });
+    }
+    if (paidOff) yearEvents.push({ kind: "loan", text: "住宅ローン完済" });
     const spots = events.filter((e) => occursAt(e, age));
     const spotCost = spots.reduce((s, e) => s + e.amount, 0);
     spots.forEach((e) => yearEvents.push({ kind: "spot", text: e.label || "スポット支出" }));
 
-    const totalExpense = livingCost + educationCost + spotCost;
+    const totalExpense = livingCost + educationCost + loanPayment + spotCost;
 
     const rule = [...investment.rules]
       .reverse()
@@ -96,6 +118,8 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
       totalIncome,
       livingCost,
       educationCost,
+      loanPayment,
+      loanBalance,
       spotCost,
       totalExpense,
       netCashflow: totalIncome - totalExpense,
@@ -114,43 +138,56 @@ interface AssetYear {
   contribution: number;
   investmentReturn: number;
   cash: number;
+  investedCurrent: number;
+  investedNew: number;
   invested: number;
 }
 
+/**
+ * returnAt(t) は [現在のポートフォリオの利回り, 積立ポートフォリオの利回り] を返す。
+ * 2つの口座は別々に複利運用し、取り崩しは残高の比率で按分する。
+ */
 function projectAssets(
   cashflows: YearCashflow[],
   initialCash: number,
   initialInvested: number,
-  returnAt: (t: number) => number,
+  returnAt: (t: number) => [number, number],
 ): AssetYear[] {
   let cash = initialCash;
-  let invested = initialInvested;
+  let cur = Math.max(0, initialInvested);
+  let neu = 0;
 
   return cashflows.map((cf, t) => {
-    const r = returnAt(t);
-    const investedStart = invested;
+    const [rCur, rNew] = returnAt(t);
     cash += cf.netCashflow;
 
-    // 現預金の範囲でのみ積み立てる
-    let contribution = Math.min(cf.plannedContribution, Math.max(0, cash));
-    cash -= contribution;
-    invested += contribution;
+    // 現預金の範囲でのみ積み立てる（積立は期中なので半年分の運用とみなす）
+    const deposit = Math.min(cf.plannedContribution, Math.max(0, cash));
+    cash -= deposit;
 
     // 現預金が不足したら運用資産から取り崩す
     let withdrawal = 0;
-    if (cash < 0 && invested > 0) {
-      withdrawal = Math.min(invested, -cash);
-      invested -= withdrawal;
+    const pool = cur + neu;
+    if (cash < 0 && pool > 0) {
+      withdrawal = Math.min(pool, -cash);
       cash += withdrawal;
-      contribution -= withdrawal;
     }
+    const wCur = pool > 0 ? withdrawal * (cur / pool) : 0;
+    const wNew = withdrawal - wCur;
 
-    // 期中の積立は半年分の運用とみなす
-    const investmentReturn =
-      Math.max(0, investedStart - withdrawal) * r + Math.max(0, contribution) * (r / 2);
-    invested = Math.max(0, invested + investmentReturn);
+    const retCur = Math.max(0, cur - wCur) * rCur;
+    const retNew = Math.max(0, neu - wNew) * rNew + deposit * (rNew / 2);
+    cur = Math.max(0, cur - wCur + retCur);
+    neu = Math.max(0, neu - wNew + deposit + retNew);
 
-    return { contribution, investmentReturn, cash, invested };
+    return {
+      contribution: deposit - withdrawal,
+      investmentReturn: retCur + retNew,
+      cash,
+      investedCurrent: cur,
+      investedNew: neu,
+      invested: cur + neu,
+    };
   });
 }
 
@@ -234,21 +271,32 @@ export function runSimulation(
   normals: Float64Array[],
 ): { rows: YearResult[]; summary: SimulationSummary } {
   const { basic, self, investment } = input;
-  const { expectedReturn, risk, ratioTotal } = portfolioStats(investment.funds);
-  const mu = Math.max(finite(expectedReturn) / 100, -0.99);
-  const sigma = Math.max(finite(risk) / 100, 0);
+  const current = portfolioStats(investment.currentFunds);
+  const contribution = portfolioStats(investment.contributionFunds);
+  const muA = Math.max(finite(current.expectedReturn) / 100, -0.99);
+  const muB = Math.max(finite(contribution.expectedReturn) / 100, -0.99);
+  const sA = Math.max(finite(current.risk) / 100, 0);
+  const sB = Math.max(finite(contribution.risk) / 100, 0);
+  // 2つのポートフォリオは同じ市場で動くので相関を持たせる
+  const cov = portfolioCovariance(investment.currentFunds, investment.contributionFunds) / 10000;
+  const rho = sA > 0 && sB > 0 ? Math.max(-1, Math.min(1, cov / (sA * sB))) : 0;
+  const rhoC = Math.sqrt(Math.max(0, 1 - rho * rho));
 
   // 期待リターン一定のシナリオ
-  const base = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, () => mu);
+  const base = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, () => [muA, muB]);
 
   // GBM: 1年の価格比 = exp(ln(1+μ) − σ²/2 + σZ)  → 期待値が 1+μ になる
-  const drift = Math.log(1 + mu) - (sigma * sigma) / 2;
+  const driftA = Math.log(1 + muA) - (sA * sA) / 2;
+  const driftB = Math.log(1 + muB) - (sB * sB) / 2;
+  const years = cashflows.length;
   const totalsByYear: number[][] = cashflows.map(() => []);
   let successes = 0;
   for (const z of normals) {
-    const path = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, (t) =>
-      Math.exp(drift + sigma * (z[t] ?? 0)) - 1,
-    );
+    const path = projectAssets(cashflows, basic.cashAssets, basic.investedAssets, (t) => {
+      const z1 = z[t] ?? 0;
+      const z2 = rho * z1 + rhoC * (z[years + t] ?? 0);
+      return [Math.exp(driftA + sA * z1) - 1, Math.exp(driftB + sB * z2) - 1];
+    });
     let ok = true;
     path.forEach((p, t) => {
       const total = p.cash + p.invested;
@@ -286,9 +334,8 @@ export function runSimulation(
   return {
     rows,
     summary: {
-      expectedReturn,
-      portfolioRisk: risk,
-      ratioTotal,
+      current,
+      contribution,
       assetsAtRetirement: retireRow?.totalAssets ?? 0,
       finalAssets: last?.totalAssets ?? 0,
       minAssets: minRow?.totalAssets ?? 0,
@@ -307,7 +354,8 @@ export function runSimulation(
 export function useSimulation(input: SimulationInput, seed: number) {
   const cashflows = useMemo(() => buildCashflows(input), [input]);
   const normals = useMemo(
-    () => generateNormals(MC_TRIALS, cashflows.length, seed),
+    // 1試行あたり [現在ポートフォリオ用 | 積立用] の2系列ぶんの乱数を持つ
+    () => generateNormals(MC_TRIALS, cashflows.length * 2, seed),
     [cashflows.length, seed],
   );
   return useMemo(() => runSimulation(input, cashflows, normals), [input, cashflows, normals]);

@@ -1,27 +1,26 @@
 "use client";
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   Baby,
-  Car,
-  Home as HomeIcon,
-  Palmtree,
-  Repeat,
   CalendarClock,
   HeartHandshake,
   PiggyBank,
   PieChart,
   Plus,
+  Repeat,
   ShoppingCart,
   User,
   Wallet,
 } from "lucide-react";
 import { uid } from "@/lib/defaults";
-import { EDUCATION_COST } from "@/lib/education";
+import { EDUCATION_COST, EXAMS } from "@/lib/education";
 import { FUND_PRESETS, portfolioStats, presetOf } from "@/lib/funds";
-import { SPOT_PRESETS, occurrenceAges } from "@/lib/spot";
-import type { Person, SchoolType, SimulationInput, SpotEvent, UniversityType } from "@/lib/types";
+import { occurrenceAges } from "@/lib/spot";
+import type { Child, Fund, Person, SchoolType, SimulationInput, SpotEvent, UniversityType } from "@/lib/types";
+import MortgageSection from "./MortgageSection";
 import PersonSection from "./PersonSection";
+import ScenarioBar from "./ScenarioBar";
 import {
   AddButton,
   ItemCard,
@@ -30,14 +29,13 @@ import {
   SelectField,
   SubHeading,
   TextField,
+  Toggle,
 } from "./ui";
 
 type Props = {
   input: SimulationInput;
   setInput: Dispatch<SetStateAction<SimulationInput>>;
 };
-
-const PRESET_ICON = { house: HomeIcon, travel: Palmtree, car: Car } as const;
 
 function SpotCard({ ev, onChange, onRemove }: {
   ev: SpotEvent; onChange: (v: Partial<SpotEvent>) => void; onRemove: () => void;
@@ -85,7 +83,64 @@ function SpotCard({ ev, onChange, onRemove }: {
   );
 }
 
-const schoolOptions = (stage: "elementary" | "juniorHigh" | "highSchool") =>
+/** ファンド配分リスト（現在のポートフォリオ／積立の両方で使う） */
+function FundList({ funds, onChange }: { funds: Fund[]; onChange: (funds: Fund[]) => void }) {
+  const { expectedReturn: rate, risk, ratioTotal } = portfolioStats(funds);
+  const off = Math.abs(ratioTotal - 100) > 0.01;
+  return (
+    <>
+      {funds.map((f) => {
+        const preset = presetOf(f.presetId);
+        const update = (v: Partial<Fund>) => onChange(funds.map((x) => (x.id === f.id ? { ...x, ...v } : x)));
+        return (
+          <ItemCard key={f.id} onRemove={() => onChange(funds.filter((x) => x.id !== f.id))}>
+            <div className="grid grid-cols-[1fr_6rem] gap-2">
+              <SelectField label="投資先（指数）" value={f.presetId}
+                options={FUND_PRESETS.map((p) => ({ value: p.id, label: p.name }))}
+                onChange={(v) => update({ presetId: v })} />
+              <NumberField label="割合" unit="%" step={5} min={0} value={f.ratio} onChange={(v) => update({ ratio: v })} />
+            </div>
+            <div className="mt-2 flex gap-2 text-[11px]">
+              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">リターン {preset.expectedReturn}%</span>
+              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">リスク σ {preset.risk}%</span>
+            </div>
+          </ItemCard>
+        );
+      })}
+      <AddButton onClick={() => onChange([...funds, { id: uid(), presetId: "sp500", ratio: Math.max(0, 100 - ratioTotal) }])}>
+        <Plus size={16} /> 投資先を追加
+      </AddButton>
+      <div>
+        <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
+          {funds.map((f, i) => (
+            <div key={f.id} style={{ width: `${(Math.max(0, f.ratio) / Math.max(100, ratioTotal)) * 100}%` }}
+              className={["bg-indigo-500", "bg-sky-400", "bg-emerald-400", "bg-amber-400", "bg-rose-400"][i % 5]} />
+          ))}
+        </div>
+        <p className={`mt-1 text-xs ${off ? "text-amber-600" : "text-slate-500"}`}>
+          割合合計 {ratioTotal}%
+          {off && "（100%以外の場合は比率で正規化して計算します）"}
+          ／期待リターン <span className="font-semibold">{rate.toFixed(2)}%</span>
+          ／リスク <span className="font-semibold">{risk.toFixed(1)}%</span>
+        </p>
+      </div>
+    </>
+  );
+}
+
+function FundGroup({ title, note, children }: { title: string; note: string; children: ReactNode }) {
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+      <div>
+        <div className="text-sm font-semibold text-slate-700">{title}</div>
+        <div className="text-[11px] text-slate-400">{note}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const schoolOptions = (stage: "preschool" | "elementary" | "juniorHigh" | "highSchool") =>
   (["public", "private"] as SchoolType[]).map((v) => ({
     value: v,
     label: `${v === "public" ? "公立" : "私立"}（${EDUCATION_COST[stage][v]}万/年）`,
@@ -103,7 +158,20 @@ const graduateOptions: { value: UniversityType; label: string }[] = [
   { value: "private", label: `私立（${EDUCATION_COST.graduate.private}万/年）` },
 ];
 
-function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "amber" }) {
+const NEW_CHILD: Omit<Child, "id" | "name"> = {
+  currentAge: 0,
+  preschool: "public",
+  elementary: "public",
+  juniorHigh: "public",
+  highSchool: "public",
+  university: "public",
+  graduate: "none",
+  examJuniorHigh: false,
+  examHighSchool: true,
+  examUniversity: true,
+};
+
+function Badge({ children, tone = "slate" }: { children: ReactNode; tone?: "slate" | "amber" }) {
   const cls = tone === "amber" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500";
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{children}</span>;
 }
@@ -113,41 +181,24 @@ export default function InputPanel({ input, setInput }: Props) {
   const patch = <K extends keyof SimulationInput>(key: K, value: Partial<SimulationInput[K]>) =>
     setInput((prev) => ({ ...prev, [key]: { ...prev[key], ...value } }));
 
-  const { basic, self, spouse, expense, children, events, investment } = input;
-  const [presetStart, setPresetStart] = useState<number | null>(null);
-  const presetStartAge = presetStart ?? self.currentAge;
-  const applyPreset = (presetId: string) => {
-    const preset = SPOT_PRESETS.find((x) => x.id === presetId);
-    if (!preset) return;
-    setInput((p) => ({
-      ...p,
-      events: [
-        ...p.events,
-        ...preset.items.map((it) => ({
-          id: uid(),
-          label: it.label,
-          amount: it.amount,
-          isRecurring: true,
-          startAge: presetStartAge,
-          endAge: Math.max(presetStartAge, Math.min(it.untilAge, p.basic.endAge)),
-          interval: it.interval,
-        })),
-      ],
-    }));
-  };
-  const { expectedReturn: rate, risk, ratioTotal } = portfolioStats(investment.funds);
+  const { basic, self, spouse, expense, mortgage, children, events, investment } = input;
+  const cur = portfolioStats(investment.currentFunds);
+  const con = portfolioStats(investment.contributionFunds);
+  const ratioOff = [cur, con].some((s) => Math.abs(s.ratioTotal - 100) > 0.01);
   const patchPerson = (key: "self" | "spouse") => (v: Partial<Person>) =>
     setInput((prev) => ({ ...prev, [key]: { ...prev[key], ...v } }));
 
   return (
     <div className="space-y-3">
+      <ScenarioBar input={input} onLoad={setInput} />
+
       {/* 基本・資産 */}
       <Section icon={PiggyBank} title="基本・資産" defaultOpen>
         <div className="grid grid-cols-2 gap-3">
           <NumberField label="現預金" unit="万円" step={10} value={basic.cashAssets}
             onChange={(v) => patch("basic", { cashAssets: v })} />
           <NumberField label="運用中の資産" unit="万円" step={10} value={basic.investedAssets}
-            onChange={(v) => patch("basic", { investedAssets: v })} />
+            onChange={(v) => patch("basic", { investedAssets: v })} hint="投資設定の「現在のポートフォリオ」で運用" />
           <NumberField label="シミュレーション終了（本人）" unit="歳" value={basic.endAge} min={self.currentAge} max={110}
             onChange={(v) => patch("basic", { endAge: v })} />
         </div>
@@ -167,13 +218,15 @@ export default function InputPanel({ input, setInput }: Props) {
           <NumberField label="インフレ率" unit="%/年" step={0.1} value={expense.inflationRate}
             onChange={(v) => patch("expense", { inflationRate: v })} />
         </div>
-        <p className="text-[11px] text-slate-400">生活費・教育費は毎年インフレ率で増加します。</p>
+        <p className="text-[11px] text-slate-400">生活費・教育費は毎年インフレ率で増加します。住宅ローンは下の「住宅ローン」で設定します（生活費には含めないでください）。</p>
       </Section>
+
+      <MortgageSection mortgage={mortgage} currentAge={self.currentAge} onChange={(v) => patch("mortgage", v)} />
 
       {/* 子供 */}
       <Section icon={Baby} title="子供の教育費" badge={<Badge>{children.length}人</Badge>}>
         {children.map((ch) => {
-          const update = (v: Partial<typeof ch>) =>
+          const update = (v: Partial<Child>) =>
             setInput((p) => ({ ...p, children: p.children.map((x) => (x.id === ch.id ? { ...x, ...v } : x)) }));
           return (
             <ItemCard key={ch.id}
@@ -181,6 +234,7 @@ export default function InputPanel({ input, setInput }: Props) {
               <div className="grid grid-cols-2 gap-2">
                 <TextField label="名前" value={ch.name} onChange={(v) => update({ name: v })} />
                 <NumberField label="現在の年齢" unit="歳" min={0} value={ch.currentAge} onChange={(v) => update({ currentAge: v })} />
+                <SelectField label="幼稚園・保育園" value={ch.preschool} options={schoolOptions("preschool")} onChange={(v) => update({ preschool: v })} />
                 <SelectField label="小学校" value={ch.elementary} options={schoolOptions("elementary")} onChange={(v) => update({ elementary: v })} />
                 <SelectField label="中学校" value={ch.juniorHigh} options={schoolOptions("juniorHigh")} onChange={(v) => update({ juniorHigh: v })} />
                 <SelectField label="高校" value={ch.highSchool} options={schoolOptions("highSchool")} onChange={(v) => update({ highSchool: v })} />
@@ -189,6 +243,21 @@ export default function InputPanel({ input, setInput }: Props) {
                   <SelectField label="大学院（修士2年）" value={ch.graduate} options={graduateOptions} onChange={(v) => update({ graduate: v })} />
                 )}
               </div>
+              <div className="mt-3 space-y-2 rounded-md bg-white p-2.5">
+                <div className="text-[11px] font-semibold text-slate-500">受験（直前3年間の塾・予備校代＋最終年の受験料を自動加算）</div>
+                {EXAMS.map((ex) => {
+                  const disabled = ex.key === "examUniversity" && ch.university === "none";
+                  return (
+                    <div key={ex.key} className={disabled ? "opacity-40" : ""}>
+                      <Toggle label={`${ex.label}をする`} checked={ch[ex.key] && !disabled}
+                        onChange={(v) => !disabled && update({ [ex.key]: v } as Partial<Child>)} />
+                      <p className="text-[10px] text-slate-400">
+                        {ex.fromAge}〜{ex.fromAge + 2}歳: 塾 {ex.cram.join("→")}万/年 ＋ 受験料 {ex.examFee}万
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
             </ItemCard>
           );
         })}
@@ -196,42 +265,16 @@ export default function InputPanel({ input, setInput }: Props) {
           onClick={() =>
             setInput((p) => ({
               ...p,
-              children: [
-                ...p.children,
-                { id: uid(), name: `第${p.children.length + 1}子`, currentAge: 0, elementary: "public", juniorHigh: "public", highSchool: "public", university: "public", graduate: "none" },
-              ],
+              children: [...p.children, { ...NEW_CHILD, id: uid(), name: `第${p.children.length + 1}子` }],
             }))
           }>
           <Plus size={16} /> 子供を追加
         </AddButton>
-        <p className="text-[11px] text-slate-400">文科省「子供の学習費調査」等をもとにした概算額。小6-11歳／中12-14歳／高15-17歳／大18-21歳／大学院22-23歳。</p>
+        <p className="text-[11px] text-slate-400">文科省「子供の学習費調査」等をもとにした概算額。幼3-5歳／小6-11歳／中12-14歳／高15-17歳／大18-21歳／大学院22-23歳。塾・受験料は一般的な相場の概算です。</p>
       </Section>
 
       {/* スポット支出 */}
       <Section icon={ShoppingCart} title="スポット支出" badge={<Badge>{events.length}件</Badge>}>
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-          <div className="mb-2 flex items-end gap-2">
-            <div className="flex-1 text-xs font-semibold text-indigo-900">ライフスタイル・プリセット（ワンタップで繰り返し支出を追加）</div>
-            <div className="w-24">
-              <NumberField label="起点年齢" unit="歳" value={presetStartAge} onChange={(v) => setPresetStart(v)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-            {SPOT_PRESETS.map((ps) => {
-              const Icon = PRESET_ICON[ps.id as keyof typeof PRESET_ICON] ?? Repeat;
-              return (
-                <button key={ps.id} type="button" onClick={() => applyPreset(ps.id)}
-                  className="flex items-center gap-2 rounded-md border border-indigo-200 bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:border-indigo-400 hover:bg-indigo-50 active:scale-[0.98]">
-                  <Icon size={18} className="shrink-0 text-indigo-600" />
-                  <span className="min-w-0">
-                    <span className="block text-xs font-semibold leading-tight text-slate-800">{ps.label}</span>
-                    <span className="block text-[10px] text-slate-500">{ps.description}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
         {[...events].sort((a, b) => a.startAge - b.startAge).map((ev) => (
           <SpotCard key={ev.id} ev={ev}
             onChange={(v) => setInput((p) => ({ ...p, events: p.events.map((x) => (x.id === ev.id ? { ...x, ...v } : x)) }))}
@@ -254,55 +297,19 @@ export default function InputPanel({ input, setInput }: Props) {
       {/* 投資 */}
       <Section icon={PieChart} title="投資設定"
         badge={
-          <Badge tone={Math.abs(ratioTotal - 100) > 0.01 ? "amber" : "slate"}>
-            {rate.toFixed(1)}% / σ{risk.toFixed(1)}%
+          <Badge tone={ratioOff ? "amber" : "slate"}>
+            {cur.expectedReturn.toFixed(1)}% / 積立 {con.expectedReturn.toFixed(1)}%
           </Badge>
         }>
-        <SubHeading>ファンド構成</SubHeading>
-        {investment.funds.map((f) => {
-          const preset = presetOf(f.presetId);
-          const update = (v: Partial<typeof f>) =>
-            patch("investment", { funds: investment.funds.map((x) => (x.id === f.id ? { ...x, ...v } : x)) });
-          return (
-            <ItemCard key={f.id}
-              onRemove={() => patch("investment", { funds: investment.funds.filter((x) => x.id !== f.id) })}>
-              <div className="grid grid-cols-[1fr_6rem] gap-2">
-                <SelectField label="投資先（指数）" value={f.presetId}
-                  options={FUND_PRESETS.map((p) => ({ value: p.id, label: p.name }))}
-                  onChange={(v) => update({ presetId: v })} />
-                <NumberField label="投資割合" unit="%" step={5} min={0} value={f.ratio} onChange={(v) => update({ ratio: v })} />
-              </div>
-              <div className="mt-2 flex gap-2 text-[11px]">
-                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">リターン {preset.expectedReturn}%</span>
-                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">リスク σ {preset.risk}%</span>
-              </div>
-            </ItemCard>
-          );
-        })}
-        <AddButton
-          onClick={() =>
-            patch("investment", {
-              funds: [...investment.funds, { id: uid(), presetId: "sp500", ratio: Math.max(0, 100 - ratioTotal) }],
-            })
-          }>
-          <Plus size={16} /> 投資先を追加
-        </AddButton>
+        <FundGroup title="① 現在のポートフォリオ"
+          note={`すでに運用中の資産 ${basic.investedAssets.toLocaleString()}万円の配分。この利回りで複利運用します。`}>
+          <FundList funds={investment.currentFunds} onChange={(f) => patch("investment", { currentFunds: f })} />
+        </FundGroup>
 
-        {/* 割合バー */}
-        <div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
-            {investment.funds.map((f, i) => (
-              <div key={f.id} style={{ width: `${(Math.max(0, f.ratio) / Math.max(100, ratioTotal)) * 100}%` }}
-                className={["bg-indigo-500", "bg-sky-400", "bg-emerald-400", "bg-amber-400", "bg-rose-400"][i % 5]} />
-            ))}
-          </div>
-          <p className={`mt-1 text-xs ${Math.abs(ratioTotal - 100) > 0.01 ? "text-amber-600" : "text-slate-500"}`}>
-            割合合計 {ratioTotal}%
-            {Math.abs(ratioTotal - 100) > 0.01 && "（100%以外の場合は比率で正規化して計算します）"}
-            ／期待リターン <span className="font-semibold">{rate.toFixed(2)}%</span>
-            ／リスク <span className="font-semibold">{risk.toFixed(1)}%</span>
-          </p>
-        </div>
+        <FundGroup title="② これからの積立投資"
+          note="毎年の積立額をこの配分で購入し、①とは別に複利運用します。">
+          <FundList funds={investment.contributionFunds} onChange={(f) => patch("investment", { contributionFunds: f })} />
+        </FundGroup>
 
         <SubHeading>積立額</SubHeading>
         <NumberField label="基本の年間積立額" unit="万円/年" step={6} value={investment.baseContribution}
@@ -333,6 +340,7 @@ export default function InputPanel({ input, setInput }: Props) {
           }>
           <Plus size={16} /> 区間を追加
         </AddButton>
+        <p className="text-[11px] text-slate-400">現預金が不足して取り崩す場合は、①②の残高の比率で按分して取り崩します。</p>
       </Section>
     </div>
   );

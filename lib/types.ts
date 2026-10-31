@@ -6,7 +6,7 @@ export type UniversityType = "public" | "private" | "none";
 export interface BasicSettings {
   endAge: number;
   cashAssets: number; // 現預金
-  investedAssets: number; // 運用中の資産
+  investedAssets: number; // 運用中の資産（現在のポートフォリオで運用）
 }
 
 export type Employment = "employee" | "self";
@@ -17,6 +17,14 @@ export interface WorkChange {
   age: number; // その人自身の年齢
   type: WorkChangeType;
   grossIncome: number; // 変更後の額面年収（retire では未使用）
+}
+
+/** 昇進: その年齢で額面年収がジャンプし、以後は昇給率で伸びる */
+export interface Promotion {
+  id: string;
+  age: number;
+  mode: "amount" | "increase"; // 昇進後の額面年収を指定 / 増加額を指定
+  value: number;
 }
 
 /** 本人・配偶者で共通の就労・年金設定 */
@@ -30,6 +38,7 @@ export interface Person {
   netIncome: number; // manualNet 時の手取り年収
   retirementAge: number;
   changes: WorkChange[];
+  promotions: Promotion[];
   pensionStartAge: number;
   pensionAuto: boolean;
   pension: number; // pensionAuto=false 時の年金額（年）
@@ -40,15 +49,34 @@ export interface ExpenseSettings {
   inflationRate: number;
 }
 
+/** 変動金利: 現在から afterYears 年後に金利が rate% になる */
+export interface RateChange {
+  id: string;
+  afterYears: number;
+  rate: number;
+}
+
+export interface MortgageSettings {
+  enabled: boolean;
+  balance: number; // 借入残高
+  years: number; // 残り返済期間
+  rate: number; // 現在の金利（%/年）
+  rateChanges: RateChange[];
+}
+
 export interface Child {
   id: string;
   name: string;
   currentAge: number;
+  preschool: SchoolType; // 幼稚園・保育園（3〜5歳）
   elementary: SchoolType;
   juniorHigh: SchoolType;
   highSchool: SchoolType;
   university: UniversityType;
   graduate: UniversityType; // 大学院（大学に進学しない場合は無視）
+  examJuniorHigh: boolean; // 中学受験する
+  examHighSchool: boolean; // 高校受験する
+  examUniversity: boolean; // 大学受験する
 }
 
 export interface SpotEvent {
@@ -75,7 +103,8 @@ export interface ContributionRule {
 }
 
 export interface InvestmentSettings {
-  funds: Fund[];
+  currentFunds: Fund[]; // 現在のポートフォリオ（運用中の資産の配分）
+  contributionFunds: Fund[]; // これからの積立の配分
   baseContribution: number;
   rules: ContributionRule[];
 }
@@ -85,12 +114,13 @@ export interface SimulationInput {
   self: Person;
   spouse: Person;
   expense: ExpenseSettings;
+  mortgage: MortgageSettings;
   children: Child[];
   events: SpotEvent[];
   investment: InvestmentSettings;
 }
 
-export type EventKind = "retire" | "work" | "pension" | "school" | "spot";
+export type EventKind = "retire" | "work" | "pension" | "school" | "spot" | "loan";
 export interface LifeEvent {
   kind: EventKind;
   text: string;
@@ -104,7 +134,9 @@ export interface YearCashflow {
   spouseIncome: number;
   totalIncome: number;
   livingCost: number;
-  educationCost: number;
+  educationCost: number; // 学費＋塾・予備校・受験料
+  loanPayment: number; // 住宅ローン年間返済額
+  loanBalance: number; // 年末のローン残高
   spotCost: number;
   totalExpense: number;
   netCashflow: number;
@@ -116,6 +148,8 @@ export interface YearResult extends YearCashflow {
   contribution: number; // 実際の積立額（マイナスは取り崩し）
   investmentReturn: number;
   cash: number;
+  investedCurrent: number; // 現在のポートフォリオ分
+  investedNew: number; // 新規積立分
   invested: number;
   totalAssets: number;
   // 固定リターン（期待リターンのみで複利運用）の総資産。totalAssets と同値で、グラフの基準線用
@@ -126,10 +160,15 @@ export interface YearResult extends YearCashflow {
   mcMinus2Sigma: number;
 }
 
-export interface SimulationSummary {
+export interface PortfolioStats {
   expectedReturn: number;
-  portfolioRisk: number;
+  risk: number;
   ratioTotal: number;
+}
+
+export interface SimulationSummary {
+  current: PortfolioStats;
+  contribution: PortfolioStats;
   assetsAtRetirement: number;
   finalAssets: number;
   minAssets: number;
