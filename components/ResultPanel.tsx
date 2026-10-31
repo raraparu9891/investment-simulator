@@ -486,7 +486,7 @@ const GROUPS: Group[] = [
         render: (r) => (
           <span className="inline-flex items-center gap-1">
             {r.contribution >= 0 && r.contribution < r.plannedContribution - 0.5 && (
-              <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700" title={`予定 ${Math.round(r.plannedContribution)}万円`}>減</span>
+              <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700" title={`予定 ${Math.round(r.plannedContribution)}万円（現預金の最低維持ラインを守るため減額）`}>減</span>
             )}
             <Num v={r.contribution} dashZero />
           </span>
@@ -620,7 +620,7 @@ function DataTable({ rows, retirementAge }: { rows: YearResult[]; retirementAge:
         <span>単位: 万円　年齢欄の（ ）は配偶者の年齢</span>
         <span className="inline-flex items-center gap-1"><span className="h-3 w-0.5 bg-indigo-600" />退職年</span>
         <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-100" />資産マイナス</span>
-        <span className="inline-flex items-center gap-1"><span className="rounded bg-amber-100 px-1 text-amber-700">減</span>現預金不足で積立を減額</span>
+        <span className="inline-flex items-center gap-1"><span className="rounded bg-amber-100 px-1 text-amber-700">減</span>最低維持ラインを守るため積立を減額・停止</span>
       </div>
     </div>
   );

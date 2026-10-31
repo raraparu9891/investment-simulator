@@ -157,10 +157,12 @@ interface AssetYear {
  * returnAt(t) は [現在のポートフォリオの利回り, 積立ポートフォリオの利回り] を返す。
  * 2つの口座は別々に複利運用し、取り崩しは残高の比率で按分する。
  * phases[t].rebalance の年は期首に2口座を合算して新しい配分へ移す（非課税スイッチング）。
+ * 積立は現預金が minCash を下回らない範囲でのみ行う。
  */
 function projectAssets(
   cashflows: YearCashflow[],
   phases: Phase[],
+  minCash: number,
   initialCash: number,
   initialInvested: number,
   returnAt: (t: number) => [number, number],
@@ -178,8 +180,12 @@ function projectAssets(
     const [rCur, rNew] = returnAt(t);
     cash += cf.netCashflow;
 
-    // 現預金の範囲でのみ積み立てる（積立は期中なので半年分の運用とみなす）
-    const deposit = Math.min(cf.plannedContribution, Math.max(0, cash));
+    // A. cash = 年間収支を反映した積立前の現預金
+    // B. 投資へ回せる最大許容額 = cash − 最低維持ライン
+    // C. 目標積立額と比べて小さいほうを拠出（マイナスなら 0）。赤字の年でも余剰があれば貯金から積み立てる
+    // 積立は期中なので半年分の運用とみなす
+    const allowance = cash - minCash;
+    const deposit = Math.max(0, Math.min(cf.plannedContribution, allowance));
     cash -= deposit;
 
     // 現預金が不足したら運用資産から取り崩す
@@ -350,12 +356,13 @@ export function runSimulation(
   const initial = phases[0] ?? phaseStats("初期設定", investment.assets, investment.currentWeights, investment.contributionWeights);
 
   // 期待リターン一定のシナリオ（フェーズごとの期待リターン）
-  const base = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => [phases[t].muA, phases[t].muB]);
+  const minCash = Math.max(0, finite(investment.minCashReserve ?? 0));
+  const base = projectAssets(cashflows, phases, minCash, basic.cashAssets, basic.investedAssets, (t) => [phases[t].muA, phases[t].muB]);
 
   const totalsByYear: number[][] = cashflows.map(() => []);
   let successes = 0;
   for (const z of normals) {
-    const path = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => {
+    const path = projectAssets(cashflows, phases, minCash, basic.cashAssets, basic.investedAssets, (t) => {
       // リスクを加重平均で求める＝資産間の相関を 1 とみなす前提なので、2口座とも同じ乱数で動かす
       const p = phases[t];
       const zt = z[t] ?? 0;

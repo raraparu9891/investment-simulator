@@ -83,6 +83,7 @@ export const DEFAULT_INPUT: SimulationInput = {
     currentWeights: { "as-1": 100 },
     contributionWeights: { "as-1": 100 },
     baseContribution: 120,
+    minCashReserve: 300,
     rules: [
       { id: "r-1", fromAge: 50, toAge: 59, amount: 60 },
       { id: "r-2", fromAge: 65, toAge: 100, amount: 0 },

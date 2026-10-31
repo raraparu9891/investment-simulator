@@ -369,7 +369,10 @@ export default function InputPanel({ input, setInput }: Props) {
         <SubHeading>積立額</SubHeading>
         <NumberField label="基本の年間積立額" unit="万円/年" step={6} value={investment.baseContribution}
           onChange={(v) => patch("investment", { baseContribution: v })}
-          hint="その年の現預金が不足する場合は、積み立て可能な範囲に自動で抑えます" />
+          hint="下の「最低維持ライン」を割り込む年は、積立額を自動で減額・停止します" />
+        <NumberField label="現預金の最低維持ライン" unit="万円" step={50} min={0} value={investment.minCashReserve}
+          onChange={(v) => patch("investment", { minCashReserve: Math.max(0, v) })}
+          hint={`積立後の現預金がこの額を下回らない範囲で積み立てます（生活費の半年分 ≒ ${Math.round(expense.livingCost / 2).toLocaleString()}万円）。赤字の年でも、この額を超える貯金があればその範囲で積立を続けます`} />
         <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <CalendarClock size={14} /> 年齢区間ごとの積立額（下にあるほど優先）
         </div>

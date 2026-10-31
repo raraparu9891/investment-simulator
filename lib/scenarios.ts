@@ -68,7 +68,13 @@ function normalizeInvestment(raw: LegacyInvestment | undefined): InvestmentSetti
   const d = DEFAULT_INPUT.investment;
   if (!raw) return d;
   if (Array.isArray(raw.assets)) {
-    return { ...d, ...raw, rebalances: (raw.rebalances ?? []) as InvestmentSettings["rebalances"] } as InvestmentSettings;
+    return {
+      ...d,
+      ...raw,
+      // 未設定の古いシナリオは従来どおり（現預金 0 円まで積立）の結果を再現する
+      minCashReserve: raw.minCashReserve ?? 0,
+      rebalances: (raw.rebalances ?? []) as InvestmentSettings["rebalances"],
+    } as InvestmentSettings;
   }
   // 旧形式: 指数 id ごとに投資対象を作り、配分を割合マップへ変換する
   const assets: Asset[] = [];
@@ -99,6 +105,7 @@ function normalizeInvestment(raw: LegacyInvestment | undefined): InvestmentSetti
     currentWeights,
     contributionWeights,
     baseContribution: raw.baseContribution ?? d.baseContribution,
+    minCashReserve: raw.minCashReserve ?? 0,
     rules: raw.rules ?? d.rules,
     rebalances,
   };

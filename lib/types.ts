@@ -119,6 +119,7 @@ export interface InvestmentSettings {
   currentWeights: Weights; // 現在のポートフォリオ（運用中の資産の配分）
   contributionWeights: Weights; // これからの積立の配分
   baseContribution: number;
+  minCashReserve: number; // 現預金の最低維持ライン。これを割り込む分は積み立てない
   rules: ContributionRule[];
   rebalances: RebalanceEvent[];
 }
