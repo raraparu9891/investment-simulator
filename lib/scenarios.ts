@@ -1,5 +1,5 @@
 import { DEFAULT_INPUT } from "./defaults";
-import type { Child, Person, SimulationInput, SpotEvent } from "./types";
+import type { Asset, Child, InvestmentSettings, Person, SimulationInput, SpotEvent, Weights } from "./types";
 
 const STORAGE_KEY = "lifeplan-simulator.scenarios.v1";
 
@@ -45,6 +45,65 @@ const CHILD_FILL: Pick<Child, "preschool" | "examJuniorHigh" | "examHighSchool" 
   examUniversity: false,
 };
 
+// 旧バージョン（固定ファンド選択式）の指数定義。古いシナリオの移行にだけ使う
+const LEGACY_PRESETS: Record<string, [string, number, number]> = {
+  acwi: ["全世界株式", 9, 15],
+  sp500: ["S&P500", 12, 17],
+  nasdaq100: ["NASDAQ-100", 19, 21],
+  qld: ["QLD（NASDAQ-100 2倍）", 29, 42],
+  fangplus: ["FANG+", 15, 25],
+  gold: ["ゴールド", 5, 15],
+  cash: ["現預金（無リスク資産）", 0, 0],
+};
+
+type LegacyFund = { presetId: string; ratio: number };
+type LegacyInvestment = Partial<InvestmentSettings> & {
+  funds?: LegacyFund[];
+  currentFunds?: LegacyFund[];
+  contributionFunds?: LegacyFund[];
+  rebalances?: { id: string; targetAge: number; allocations: Weights | { fundId: string; percentage: number }[] }[];
+};
+
+function normalizeInvestment(raw: LegacyInvestment | undefined): InvestmentSettings {
+  const d = DEFAULT_INPUT.investment;
+  if (!raw) return d;
+  if (Array.isArray(raw.assets)) {
+    return { ...d, ...raw, rebalances: (raw.rebalances ?? []) as InvestmentSettings["rebalances"] } as InvestmentSettings;
+  }
+  // 旧形式: 指数 id ごとに投資対象を作り、配分を割合マップへ変換する
+  const assets: Asset[] = [];
+  const assetOf = (presetId: string) => {
+    const id = `legacy-${presetId}`;
+    if (!assets.some((a) => a.id === id)) {
+      const [name, expectedReturn, risk] = LEGACY_PRESETS[presetId] ?? [presetId, 0, 0];
+      assets.push({ id, name, expectedReturn, risk });
+    }
+    return id;
+  };
+  const toWeights = (list: { presetId: string; ratio: number }[] | undefined): Weights => {
+    const w: Weights = {};
+    for (const f of list ?? []) w[assetOf(f.presetId)] = (w[assetOf(f.presetId)] ?? 0) + f.ratio;
+    return w;
+  };
+  const currentWeights = toWeights(raw.currentFunds ?? raw.funds);
+  const contributionWeights = toWeights(raw.contributionFunds ?? raw.funds);
+  const rebalances = (raw.rebalances ?? []).map((rb) => ({
+    id: rb.id,
+    targetAge: rb.targetAge,
+    allocations: Array.isArray(rb.allocations)
+      ? toWeights(rb.allocations.map((a) => ({ presetId: a.fundId, ratio: a.percentage })))
+      : rb.allocations,
+  }));
+  return {
+    assets: assets.length ? assets : d.assets,
+    currentWeights,
+    contributionWeights,
+    baseContribution: raw.baseContribution ?? d.baseContribution,
+    rules: raw.rules ?? d.rules,
+    rebalances,
+  };
+}
+
 const mergePerson = (p: Partial<Person> | undefined, d: Person): Person => ({ ...d, ...p });
 
 /**
@@ -52,13 +111,8 @@ const mergePerson = (p: Partial<Person> | undefined, d: Person): Person => ({ ..
  */
 export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
   const d = DEFAULT_INPUT;
-  const inv = { ...d.investment, ...raw.investment } as SimulationInput["investment"] & { funds?: SimulationInput["investment"]["currentFunds"] };
-  // 旧形式（funds 1本）は現在・積立の両方に同じ配分を使う
-  if (inv.funds && !raw.investment?.currentFunds) inv.currentFunds = inv.funds;
-  if (inv.funds && !raw.investment?.contributionFunds) inv.contributionFunds = inv.funds;
-  delete inv.funds;
-  // 既定値のリバランス例を古いシナリオに混ぜない
-  inv.rebalances = raw.investment?.rebalances ?? [];
+  // 既定値のリバランス例は古いシナリオに混ぜない（normalizeInvestment 内で [] を補う）
+  const inv = normalizeInvestment(raw.investment as LegacyInvestment | undefined);
   return {
     basic: { ...d.basic, ...raw.basic },
     self: mergePerson(raw.self, d.self),

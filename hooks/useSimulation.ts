@@ -2,16 +2,17 @@
 
 import { useMemo } from "react";
 import { educationCostAt, examCostAt } from "@/lib/education";
-import { allocationsToFunds, portfolioCovariance, portfolioStats, shortName } from "@/lib/funds";
+import { mixLabel, portfolioStats } from "@/lib/funds";
 import { loanSchedule } from "@/lib/loan";
 import { grossAt, netOf, pensionOf } from "@/lib/income";
 import { occursAt } from "@/lib/spot";
 import type {
-  Fund,
+  Asset,
   LifeEvent,
   Person,
   SimulationInput,
   SimulationSummary,
+  Weights,
   YearCashflow,
   YearResult,
 } from "@/lib/types";
@@ -108,10 +109,7 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
     // 開始時点で既に過ぎている targetAge は初年度に実行する
     for (const rb of investment.rebalances ?? []) {
       if (rb.targetAge === age || (t === 0 && rb.targetAge < age)) {
-        const mix = rb.allocations
-          .filter((a) => a.percentage > 0)
-          .map((a) => `${shortName(a.fundId)} ${a.percentage}%`)
-          .join("・");
+        const mix = mixLabel(investment.assets, rb.allocations);
         yearEvents.push({ kind: "rebalance", text: `リバランス実行（${mix || "配分なし"}）` });
       }
     }
@@ -222,8 +220,6 @@ interface PhaseStats {
   muB: number;
   sA: number;
   sB: number;
-  rho: number;
-  rhoC: number;
   driftA: number;
   driftB: number;
 }
@@ -232,16 +228,13 @@ interface Phase extends PhaseStats {
   rebalance: boolean;
 }
 
-function phaseStats(label: string, curFunds: Fund[], newFunds: Fund[]): PhaseStats {
-  const current = portfolioStats(curFunds);
-  const contribution = portfolioStats(newFunds);
+function phaseStats(label: string, assets: Asset[], curWeights: Weights, newWeights: Weights): PhaseStats {
+  const current = portfolioStats(assets, curWeights);
+  const contribution = portfolioStats(assets, newWeights);
   const muA = Math.max(finite(current.expectedReturn) / 100, -0.99);
   const muB = Math.max(finite(contribution.expectedReturn) / 100, -0.99);
   const sA = Math.max(finite(current.risk) / 100, 0);
   const sB = Math.max(finite(contribution.risk) / 100, 0);
-  // 2つのポートフォリオは同じ市場で動くので相関を持たせる
-  const cov = portfolioCovariance(curFunds, newFunds) / 10000;
-  const rho = sA > 0 && sB > 0 ? Math.max(-1, Math.min(1, cov / (sA * sB))) : 0;
   return {
     label,
     current,
@@ -250,8 +243,6 @@ function phaseStats(label: string, curFunds: Fund[], newFunds: Fund[]): PhaseSta
     muB,
     sA,
     sB,
-    rho,
-    rhoC: Math.sqrt(Math.max(0, 1 - rho * rho)),
     // GBM: 1年の価格比 = exp(ln(1+μ) − σ²/2 + σZ)  → 期待値が 1+μ になる
     driftA: Math.log(1 + muA) - (sA * sA) / 2,
     driftB: Math.log(1 + muB) - (sB * sB) / 2,
@@ -262,14 +253,13 @@ function phaseStats(label: string, curFunds: Fund[], newFunds: Fund[]): PhaseSta
 function buildPhases(input: SimulationInput, cashflows: YearCashflow[]): Phase[] {
   const { investment } = input;
   const queue = [...(investment.rebalances ?? [])].sort((a, b) => a.targetAge - b.targetAge);
-  let stats = phaseStats("初期設定", investment.currentFunds, investment.contributionFunds);
+  let stats = phaseStats("初期設定", investment.assets, investment.currentWeights, investment.contributionWeights);
   let next = 0;
   return cashflows.map((cf) => {
     let rebalance = false;
     while (next < queue.length && queue[next].targetAge <= cf.age) {
       const rb = queue[next++];
-      const funds = allocationsToFunds(rb.allocations);
-      stats = phaseStats(`${Math.max(rb.targetAge, cashflows[0].age)}歳〜`, funds, funds);
+      stats = phaseStats(`${Math.max(rb.targetAge, cashflows[0].age)}歳〜`, investment.assets, rb.allocations, rb.allocations);
       rebalance = true;
     }
     return { ...stats, rebalance };
@@ -357,20 +347,19 @@ export function runSimulation(
 ): { rows: YearResult[]; summary: SimulationSummary } {
   const { basic, self, investment } = input;
   const phases = buildPhases(input, cashflows);
-  const initial = phases[0] ?? phaseStats("初期設定", investment.currentFunds, investment.contributionFunds);
+  const initial = phases[0] ?? phaseStats("初期設定", investment.assets, investment.currentWeights, investment.contributionWeights);
 
   // 期待リターン一定のシナリオ（フェーズごとの期待リターン）
   const base = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => [phases[t].muA, phases[t].muB]);
 
-  const years = cashflows.length;
   const totalsByYear: number[][] = cashflows.map(() => []);
   let successes = 0;
   for (const z of normals) {
     const path = projectAssets(cashflows, phases, basic.cashAssets, basic.investedAssets, (t) => {
+      // リスクを加重平均で求める＝資産間の相関を 1 とみなす前提なので、2口座とも同じ乱数で動かす
       const p = phases[t];
-      const z1 = z[t] ?? 0;
-      const z2 = p.rho * z1 + p.rhoC * (z[years + t] ?? 0);
-      return [Math.exp(p.driftA + p.sA * z1) - 1, Math.exp(p.driftB + p.sB * z2) - 1];
+      const zt = z[t] ?? 0;
+      return [Math.exp(p.driftA + p.sA * zt) - 1, Math.exp(p.driftB + p.sB * zt) - 1];
     });
     let ok = true;
     path.forEach((p, t) => {
@@ -435,8 +424,7 @@ export function runSimulation(
 export function useSimulation(input: SimulationInput, seed: number) {
   const cashflows = useMemo(() => buildCashflows(input), [input]);
   const normals = useMemo(
-    // 1試行あたり [現在ポートフォリオ用 | 積立用] の2系列ぶんの乱数を持つ
-    () => generateNormals(MC_TRIALS, cashflows.length * 2, seed),
+    () => generateNormals(MC_TRIALS, cashflows.length, seed),
     [cashflows.length, seed],
   );
   return useMemo(() => runSimulation(input, cashflows, normals), [input, cashflows, normals]);

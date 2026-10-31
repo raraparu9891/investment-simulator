@@ -89,11 +89,16 @@ export interface SpotEvent {
   interval: number; // 何年ごとか（単発では未使用）
 }
 
-export interface Fund {
+/** ユーザー定義の投資対象（アセット） */
+export interface Asset {
   id: string;
-  presetId: string;
-  ratio: number;
+  name: string;
+  expectedReturn: number; // 想定リターン（%/年）
+  risk: number; // 想定リスク＝標準偏差（%/年）
 }
+
+/** 投資対象 id → 割合（%）。キーがない投資対象は 0% */
+export type Weights = Record<string, number>;
 
 export interface ContributionRule {
   id: string;
@@ -102,22 +107,17 @@ export interface ContributionRule {
   amount: number;
 }
 
-export interface Allocation {
-  id: string;
-  fundId: string; // FUND_PRESETS の id
-  percentage: number;
-}
-
 /** targetAge（本人）に全運用資産を allocations の割合へ再配分し、以後の積立もこの配分にする */
 export interface RebalanceEvent {
   id: string;
   targetAge: number;
-  allocations: Allocation[];
+  allocations: Weights;
 }
 
 export interface InvestmentSettings {
-  currentFunds: Fund[]; // 現在のポートフォリオ（運用中の資産の配分）
-  contributionFunds: Fund[]; // これからの積立の配分
+  assets: Asset[]; // 投資対象マスター
+  currentWeights: Weights; // 現在のポートフォリオ（運用中の資産の配分）
+  contributionWeights: Weights; // これからの積立の配分
   baseContribution: number;
   rules: ContributionRule[];
   rebalances: RebalanceEvent[];

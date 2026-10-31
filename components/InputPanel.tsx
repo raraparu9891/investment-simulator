@@ -16,9 +16,9 @@ import {
 } from "lucide-react";
 import { uid } from "@/lib/defaults";
 import { EDUCATION_COST, EXAMS } from "@/lib/education";
-import { FUND_PRESETS, allocationsToFunds, fundsToAllocations, portfolioStats, presetOf } from "@/lib/funds";
+import { normalizeWeights, portfolioStats } from "@/lib/funds";
 import { occurrenceAges } from "@/lib/spot";
-import type { Child, Fund, Person, RebalanceEvent, SchoolType, SimulationInput, SpotEvent, UniversityType } from "@/lib/types";
+import type { Asset, Child, Person, RebalanceEvent, SchoolType, SimulationInput, SpotEvent, UniversityType, Weights } from "@/lib/types";
 import MortgageSection from "./MortgageSection";
 import PersonSection from "./PersonSection";
 import ScenarioBar from "./ScenarioBar";
@@ -84,48 +84,86 @@ function SpotCard({ ev, onChange, onRemove }: {
   );
 }
 
-/** ファンド配分リスト（現在のポートフォリオ／積立の両方で使う） */
-function FundList({ funds, onChange }: { funds: Fund[]; onChange: (funds: Fund[]) => void }) {
-  const { expectedReturn: rate, risk, ratioTotal } = portfolioStats(funds);
-  const off = Math.abs(ratioTotal - 100) > 0.01;
+/** 投資対象マスターの編集 */
+function AssetEditor({ assets, onChange, onRemove }: {
+  assets: Asset[];
+  onChange: (assets: Asset[]) => void;
+  onRemove: (id: string) => void;
+}) {
   return (
-    <>
-      {funds.map((f) => {
-        const preset = presetOf(f.presetId);
-        const update = (v: Partial<Fund>) => onChange(funds.map((x) => (x.id === f.id ? { ...x, ...v } : x)));
+    <div className="space-y-2">
+      {assets.map((a) => {
+        const update = (v: Partial<Asset>) => onChange(assets.map((x) => (x.id === a.id ? { ...x, ...v } : x)));
         return (
-          <ItemCard key={f.id} onRemove={() => onChange(funds.filter((x) => x.id !== f.id))}>
-            <div className="grid grid-cols-[1fr_6rem] gap-2">
-              <SelectField label="投資先（指数）" value={f.presetId}
-                options={FUND_PRESETS.map((p) => ({ value: p.id, label: p.name }))}
-                onChange={(v) => update({ presetId: v })} />
-              <NumberField label="割合" unit="%" step={5} min={0} value={f.ratio} onChange={(v) => update({ ratio: v })} />
-            </div>
-            <div className="mt-2 flex gap-2 text-[11px]">
-              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">リターン {preset.expectedReturn}%</span>
-              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">リスク σ {preset.risk}%</span>
+          <ItemCard key={a.id} onRemove={() => onRemove(a.id)}>
+            <div className="grid grid-cols-[1fr_5.5rem_5.5rem] gap-2">
+              <TextField label="名称" value={a.name} onChange={(v) => update({ name: v })} />
+              <NumberField label="想定リターン" unit="%" step={0.5} value={a.expectedReturn}
+                onChange={(v) => update({ expectedReturn: v })} />
+              <NumberField label="想定リスク" unit="%" step={0.5} min={0} value={a.risk}
+                onChange={(v) => update({ risk: Math.max(0, v) })} />
             </div>
           </ItemCard>
         );
       })}
-      <AddButton onClick={() => onChange([...funds, { id: uid(), presetId: "sp500", ratio: Math.max(0, 100 - ratioTotal) }])}>
-        <Plus size={16} /> 投資先を追加
+      <AddButton onClick={() => onChange([...assets, { id: uid(), name: "新しい投資対象", expectedReturn: 5, risk: 10 }])}>
+        <Plus size={16} /> 投資対象を追加
       </AddButton>
-      <div>
-        <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
-          {funds.map((f, i) => (
-            <div key={f.id} style={{ width: `${(Math.max(0, f.ratio) / Math.max(100, ratioTotal)) * 100}%` }}
-              className={["bg-indigo-500", "bg-sky-400", "bg-emerald-400", "bg-amber-400", "bg-rose-400"][i % 5]} />
-          ))}
-        </div>
-        <p className={`mt-1 text-xs ${off ? "text-amber-600" : "text-slate-500"}`}>
-          割合合計 {ratioTotal}%
-          {off && "（100%以外の場合は比率で正規化して計算します）"}
+    </div>
+  );
+}
+
+const BAR_COLORS = ["bg-indigo-500", "bg-sky-400", "bg-emerald-400", "bg-amber-400", "bg-rose-400", "bg-violet-400"];
+
+/** 投資対象リストを展開し、割合（%）だけを入力する */
+function WeightEditor({ assets, weights, onChange }: {
+  assets: Asset[];
+  weights: Weights;
+  onChange: (w: Weights) => void;
+}) {
+  const { expectedReturn: rate, risk, ratioTotal } = portfolioStats(assets, weights);
+  const off = Math.abs(ratioTotal - 100) > 0.01;
+  if (assets.length === 0) {
+    return <p className="text-xs text-amber-600">先に「投資対象」を1つ以上追加してください。</p>;
+  }
+  return (
+    <div className="space-y-2">
+      <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+        {assets.map((a, i) => (
+          <div key={a.id} className="flex items-center gap-2 px-2.5 py-1.5">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${BAR_COLORS[i % BAR_COLORS.length]}`} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm text-slate-700">{a.name || "名称未設定"}</span>
+              <span className="block text-[10px] text-slate-400">リターン {a.expectedReturn}% ／ リスク {a.risk}%</span>
+            </span>
+            <div className="w-24">
+              <NumberField label="" unit="%" step={5} min={0} max={100} value={weights[a.id] ?? 0}
+                onChange={(v) => onChange({ ...weights, [a.id]: Math.max(0, v) })} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
+        {assets.map((a, i) => (
+          <div key={a.id} style={{ width: `${(Math.max(0, weights[a.id] ?? 0) / Math.max(100, ratioTotal)) * 100}%` }}
+            className={BAR_COLORS[i % BAR_COLORS.length]} />
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className={off ? "font-semibold text-amber-600" : "text-slate-500"}>合計 {Math.round(ratioTotal * 10) / 10}%</span>
+        {off && (
+          <button type="button" onClick={() => onChange(normalizeWeights(assets, weights))}
+            className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 hover:bg-amber-100">
+            100%にそろえる
+          </button>
+        )}
+        <span className="text-slate-500">
           ／期待リターン <span className="font-semibold">{rate.toFixed(2)}%</span>
           ／リスク <span className="font-semibold">{risk.toFixed(1)}%</span>
-        </p>
+        </span>
       </div>
-    </>
+      {off && <p className="text-[11px] text-amber-600">合計が100%でない場合は、比率で正規化して計算します。</p>}
+    </div>
   );
 }
 
@@ -183,8 +221,17 @@ export default function InputPanel({ input, setInput }: Props) {
     setInput((prev) => ({ ...prev, [key]: { ...prev[key], ...value } }));
 
   const { basic, self, spouse, expense, mortgage, children, events, investment } = input;
-  const cur = portfolioStats(investment.currentFunds);
-  const con = portfolioStats(investment.contributionFunds);
+  const cur = portfolioStats(investment.assets, investment.currentWeights);
+  const con = portfolioStats(investment.assets, investment.contributionWeights);
+  // 投資対象を削除したら、すべての配分からその割合も取り除く
+  const drop = (w: Weights, id: string) => Object.fromEntries(Object.entries(w).filter(([k]) => k !== id));
+  const removeAsset = (id: string) =>
+    patch("investment", {
+      assets: investment.assets.filter((a) => a.id !== id),
+      currentWeights: drop(investment.currentWeights, id),
+      contributionWeights: drop(investment.contributionWeights, id),
+      rebalances: investment.rebalances.map((rb) => ({ ...rb, allocations: drop(rb.allocations, id) })),
+    });
   const ratioOff = [cur, con].some((s) => Math.abs(s.ratioTotal - 100) > 0.01);
   const patchPerson = (key: "self" | "spouse") => (v: Partial<Person>) =>
     setInput((prev) => ({ ...prev, [key]: { ...prev[key], ...v } }));
@@ -302,14 +349,21 @@ export default function InputPanel({ input, setInput }: Props) {
             {cur.expectedReturn.toFixed(1)}% / 積立 {con.expectedReturn.toFixed(1)}%
           </Badge>
         }>
+        <FundGroup title="投資対象（アセット）の追加・編集"
+          note="名称・想定リターン・想定リスク（標準偏差）を自由に設定できます。下の①②・リバランスの割合入力に自動で展開されます。">
+          <AssetEditor assets={investment.assets} onChange={(a) => patch("investment", { assets: a })} onRemove={removeAsset} />
+        </FundGroup>
+
         <FundGroup title="① 現在のポートフォリオ"
           note={`すでに運用中の資産 ${basic.investedAssets.toLocaleString()}万円の配分。この利回りで複利運用します。`}>
-          <FundList funds={investment.currentFunds} onChange={(f) => patch("investment", { currentFunds: f })} />
+          <WeightEditor assets={investment.assets} weights={investment.currentWeights}
+            onChange={(w) => patch("investment", { currentWeights: w })} />
         </FundGroup>
 
         <FundGroup title="② これからの積立投資"
           note="毎年の積立額をこの配分で購入し、①とは別に複利運用します。">
-          <FundList funds={investment.contributionFunds} onChange={(f) => patch("investment", { contributionFunds: f })} />
+          <WeightEditor assets={investment.assets} weights={investment.contributionWeights}
+            onChange={(w) => patch("investment", { contributionWeights: w })} />
         </FundGroup>
 
         <SubHeading>積立額</SubHeading>
@@ -353,7 +407,7 @@ export default function InputPanel({ input, setInput }: Props) {
         {[...(investment.rebalances ?? [])].sort((a, b) => a.targetAge - b.targetAge).map((rb) => {
           const update = (v: Partial<RebalanceEvent>) =>
             patch("investment", { rebalances: investment.rebalances.map((x) => (x.id === rb.id ? { ...x, ...v } : x)) });
-          const stats = portfolioStats(allocationsToFunds(rb.allocations));
+          const stats = portfolioStats(investment.assets, rb.allocations);
           return (
             <div key={rb.id} className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
               <div className="flex items-end gap-2">
@@ -371,8 +425,8 @@ export default function InputPanel({ input, setInput }: Props) {
                   削除
                 </button>
               </div>
-              <FundList funds={allocationsToFunds(rb.allocations)}
-                onChange={(f) => update({ allocations: fundsToAllocations(f) })} />
+              <WeightEditor assets={investment.assets} weights={rb.allocations}
+                onChange={(w) => update({ allocations: w })} />
             </div>
           );
         })}
@@ -386,7 +440,7 @@ export default function InputPanel({ input, setInput }: Props) {
                   id: uid(),
                   targetAge: last ? last.targetAge + 5 : Math.max(self.currentAge + 1, 55),
                   // 直前の配分（なければ積立の配分）を複製して編集してもらう
-                  allocations: (last?.allocations ?? fundsToAllocations(investment.contributionFunds)).map((a) => ({ ...a, id: uid() })),
+                  allocations: { ...(last?.allocations ?? investment.contributionWeights) },
                 },
               ],
             });

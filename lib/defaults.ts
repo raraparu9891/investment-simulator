@@ -76,12 +76,12 @@ export const DEFAULT_INPUT: SimulationInput = {
     { id: "ev-3", label: "住宅リフォーム", amount: 500, isRecurring: false, startAge: 60, endAge: 60, interval: 1 },
   ],
   investment: {
-    currentFunds: [
-      { id: "f-1", presetId: "acwi", ratio: 60 },
-      { id: "f-2", presetId: "sp500", ratio: 30 },
-      { id: "f-3", presetId: "gold", ratio: 10 },
+    assets: [
+      { id: "as-1", name: "全世界株式", expectedReturn: 9, risk: 15 },
+      { id: "as-2", name: "現預金（無リスク資産）", expectedReturn: 0, risk: 0 },
     ],
-    contributionFunds: [{ id: "f-4", presetId: "acwi", ratio: 100 }],
+    currentWeights: { "as-1": 100 },
+    contributionWeights: { "as-1": 100 },
     baseContribution: 120,
     rules: [
       { id: "r-1", fromAge: 50, toAge: 59, amount: 60 },
@@ -91,10 +91,7 @@ export const DEFAULT_INPUT: SimulationInput = {
       {
         id: "rb-1",
         targetAge: 60,
-        allocations: [
-          { id: "al-1", fundId: "acwi", percentage: 60 },
-          { id: "al-2", fundId: "cash", percentage: 40 },
-        ],
+        allocations: { "as-1": 60, "as-2": 40 },
       },
     ],
   },
