@@ -1,5 +1,5 @@
 import { DEFAULT_INPUT } from "./defaults";
-import type { Asset, Child, InvestmentSettings, Person, SimulationInput, SpotEvent, Weights } from "./types";
+import type { Asset, Child, ExpenseSettings, InvestmentSettings, Person, SimulationInput, SpotEvent, Weights } from "./types";
 
 const STORAGE_KEY = "lifeplan-simulator.scenarios.v1";
 
@@ -111,7 +111,19 @@ function normalizeInvestment(raw: LegacyInvestment | undefined): InvestmentSetti
   };
 }
 
-const mergePerson = (p: Partial<Person> | undefined, d: Person): Person => ({ ...d, ...p });
+// 退職金は旧バージョンに無いので、既定値ではなく 0 で補う
+const mergePerson = (p: Partial<Person> | undefined, d: Person): Person => ({ ...d, severancePay: 0, ...p });
+
+/** 旧形式（年間生活費1項目）は「以前の設定」1行に移す */
+function normalizeExpense(raw: (Partial<ExpenseSettings> & { livingCost?: number }) | undefined): ExpenseSettings {
+  const d = DEFAULT_INPUT.expense;
+  if (!raw) return d;
+  if (Array.isArray(raw.items)) return { ...d, ...raw, items: raw.items };
+  return {
+    inflationRate: raw.inflationRate ?? d.inflationRate,
+    items: [{ id: "lv-legacy", key: "custom", label: "生活費（以前の設定）", monthly: (raw.livingCost ?? 0) / 12, preset: null }],
+  };
+}
 
 /**
  * 古いバージョンで保存したシナリオでも読み込めるよう、欠けている項目を既定値で補う。
@@ -124,8 +136,10 @@ export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
     basic: { ...d.basic, ...raw.basic },
     self: mergePerson(raw.self, d.self),
     spouse: mergePerson(raw.spouse, d.spouse),
-    expense: { ...d.expense, ...raw.expense },
-    mortgage: { ...d.mortgage, enabled: false, ...raw.mortgage },
+    expense: normalizeExpense(raw.expense),
+    mortgage: { ...d.mortgage, enabled: false, startAge: raw.self?.currentAge ?? d.self.currentAge, ...raw.mortgage },
+    // 旧バージョンでは車はスポット支出として入力されているので、既定の車は足さない
+    cars: raw.cars ?? [],
     children: (raw.children ?? d.children).map((c) => ({ ...CHILD_FILL, ...c })),
     events: (raw.events ?? d.events).map((e) => {
       const { age, ...rest } = e as SpotEvent & { age?: number };

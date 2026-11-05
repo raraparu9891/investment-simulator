@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import { educationCostAt, examCostAt } from "@/lib/education";
 import { mixLabel, portfolioStats } from "@/lib/funds";
+import { carCostAt, carLoanTerms, purchaseAges } from "@/lib/car";
+import { livingCostOf } from "@/lib/living";
 import { loanSchedule } from "@/lib/loan";
 import { grossAt, netOf, pensionOf } from "@/lib/income";
 import { occursAt } from "@/lib/spot";
@@ -52,16 +54,19 @@ function personYear(person: Person, age: number, who: string, events: LifeEvent[
     }
   }
   if (age === person.retirementAge) events.push({ kind: "retire", text: `${who} 完全リタイア` });
+  const severance = age === person.retirementAge ? Math.max(0, person.severancePay ?? 0) : 0;
+  if (severance > 0) events.push({ kind: "retire", text: `${who} 退職金 ${yen(severance)}` });
   if (age === person.pensionStartAge) events.push({ kind: "pension", text: `${who} 年金受給開始` });
 
-  return work + pension;
+  return work + pension + severance;
 }
 
 export function buildCashflows(input: SimulationInput): YearCashflow[] {
-  const { basic, self, spouse, expense, mortgage, children, events, investment } = input;
+  const { basic, self, spouse, expense, mortgage, cars, children, events, investment } = input;
   const rows: YearCashflow[] = [];
   const years = Math.min(120, Math.max(0, Math.round(basic.endAge - self.currentAge)));
-  const loan = loanSchedule(mortgage, years + 1);
+  const loan = loanSchedule(mortgage, years + 1, self.currentAge);
+  const baseLiving = livingCostOf(expense);
 
   for (let t = 0; t <= years; t++) {
     const age = self.currentAge + t;
@@ -73,7 +78,7 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
     const spouseIncome = personYear(spouse, spouseAge, "配偶者", yearEvents);
     const totalIncome = selfIncome + spouseIncome;
 
-    const livingCost = expense.livingCost * inflation;
+    const livingCost = baseLiving * inflation;
     let educationCost = 0;
     for (const child of children) {
       const childAge = child.currentAge + t;
@@ -97,11 +102,26 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
       }
     }
 
-    const { payment: loanPayment, balance: loanBalance, rate, rateChanged, paidOff } = loan[t];
+    const { payment: loanPayment, balance: loanBalance, rate, rateChanged, paidOff, started } = loan[t];
+    if (started) yearEvents.push({ kind: "loan", text: `住宅ローン借入（${yen(mortgage.balance)}・${rate}%）` });
     if (rateChanged) {
       yearEvents.push({ kind: "loan", text: `ローン金利 ${rate}%に変更（年${yen(loanPayment)}）` });
     }
     if (paidOff) yearEvents.push({ kind: "loan", text: "住宅ローン完済" });
+    // 自動車（一括 or ローン）。車両価格・ローン返済額にはインフレ率を適用しない
+    let carCost = 0;
+    for (const car of cars ?? []) {
+      carCost += carCostAt(car, age);
+      if (purchaseAges(car).includes(age)) {
+        yearEvents.push({
+          kind: "car",
+          text: car.payment === "cash"
+            ? `${car.label || "自動車"} 購入（一括${yen(car.price)}）`
+            : `${car.label || "自動車"} 購入（ローン${car.loanYears}年・月${carLoanTerms(car).monthly.toFixed(1)}万）`,
+        });
+      }
+    }
+
     const spots = events.filter((e) => occursAt(e, age));
     const spotCost = spots.reduce((s, e) => s + e.amount, 0);
     spots.forEach((e) => yearEvents.push({ kind: "spot", text: e.label || "スポット支出" }));
@@ -114,7 +134,7 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
       }
     }
 
-    const totalExpense = livingCost + educationCost + loanPayment + spotCost;
+    const totalExpense = livingCost + educationCost + loanPayment + carCost + spotCost;
 
     const rule = [...investment.rules]
       .reverse()
@@ -130,6 +150,7 @@ export function buildCashflows(input: SimulationInput): YearCashflow[] {
       educationCost,
       loanPayment,
       loanBalance,
+      carCost,
       spotCost,
       totalExpense,
       netCashflow: totalIncome - totalExpense,

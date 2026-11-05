@@ -22,6 +22,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Briefcase,
+  Car,
   CheckCircle2,
   Dices,
   Flag,
@@ -52,6 +53,7 @@ const C = {
   investedNew: "#38bdf8",
   cash: "#eb6834",
   loan: "#64748b",
+  car: "#0e9f9a",
   rebalance: "#7c3aed",
   income: "#1baf7a",
   living: "#6250d6",
@@ -70,6 +72,7 @@ const EVENT_ICON: Record<EventKind, { icon: LucideIcon; cls: string }> = {
   school: { icon: GraduationCap, cls: "bg-pink-50 text-pink-700" },
   spot: { icon: ShoppingBag, cls: "bg-amber-50 text-amber-700" },
   loan: { icon: Home, cls: "bg-slate-100 text-slate-700" },
+  car: { icon: Car, cls: "bg-teal-50 text-teal-700" },
   rebalance: { icon: Shuffle, cls: "bg-violet-50 text-violet-700" },
 };
 
@@ -208,6 +211,7 @@ function CashflowTooltip({ active, payload }: TooltipProps<number, string>) {
       <TipRow color={C.living} label="生活費" value={r.livingCost} />
       {r.educationCost > 0 && <TipRow color={C.education} label="教育費（塾・受験含む）" value={r.educationCost} />}
       {r.loanPayment > 0 && <TipRow color={C.loan} label="住宅ローン" value={r.loanPayment} />}
+      {r.carCost > 0 && <TipRow color={C.car} label="自動車" value={r.carCost} />}
       {r.spotCost > 0 && <TipRow color={C.spot} label="スポット支出" value={r.spotCost} />}
       <div className="mt-1 border-t border-slate-100 pt-1">
         <TipRow label="年間収支" value={r.netCashflow} bold />
@@ -380,6 +384,7 @@ export default function ResultPanel({
                       <Bar dataKey="livingCost" name="生活費" stackId="exp" fill={C.living} stroke="#fff" strokeWidth={0.5} />
                       <Bar dataKey="educationCost" name="教育費" stackId="exp" fill={C.education} stroke="#fff" strokeWidth={0.5} />
                       <Bar dataKey="loanPayment" name="住宅ローン" stackId="exp" fill={C.loan} stroke="#fff" strokeWidth={0.5} />
+                      <Bar dataKey="carCost" name="自動車" stackId="exp" fill={C.car} stroke="#fff" strokeWidth={0.5} />
                       <Bar dataKey="spotCost" name="スポット支出" stackId="exp" fill={C.spot} stroke="#fff" strokeWidth={0.5} radius={[3, 3, 0, 0]} />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -473,6 +478,7 @@ const GROUPS: Group[] = [
       { key: "living", label: "生活費", render: (r) => <Num v={r.livingCost} />, sum: sumOf("livingCost") },
       { key: "edu", label: "教育費", render: (r) => <Num v={r.educationCost} dashZero />, sum: sumOf("educationCost") },
       { key: "loan", label: "住宅ローン", render: (r) => <Num v={r.loanPayment} dashZero />, sum: sumOf("loanPayment") },
+      { key: "car", label: "自動車", render: (r) => <Num v={r.carCost} dashZero />, sum: sumOf("carCost") },
       { key: "spot", label: "スポット", render: (r) => <Num v={r.spotCost} dashZero />, sum: sumOf("spotCost") },
       { key: "expense", label: "支出計", total: true, render: (r) => <Num v={r.totalExpense} bold />, sum: sumOf("totalExpense") },
     ],

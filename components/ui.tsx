@@ -15,34 +15,45 @@ export function Section({
   title,
   badge,
   defaultOpen = false,
+  fixed = false,
   children,
 }: {
   icon: LucideIcon;
   title: string;
   badge?: ReactNode;
   defaultOpen?: boolean;
+  fixed?: boolean; // true: 折りたたまない（ウィザードのカード用）
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || fixed);
+  const header = (
+    <>
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <Icon size={18} />
+      </span>
+      <span className="flex-1 font-semibold text-slate-800">{title}</span>
+      {badge}
+    </>
+  );
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-        aria-expanded={open}
-      >
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-          <Icon size={18} />
-        </span>
-        <span className="flex-1 font-semibold text-slate-800">{title}</span>
-        {badge}
-        <ChevronDown
-          size={18}
-          className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && <div className="space-y-4 border-t border-slate-100 px-4 py-4">{children}</div>}
+      {fixed ? (
+        <div className="flex w-full items-center gap-3 px-4 py-3">{header}</div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left"
+          aria-expanded={open}
+        >
+          {header}
+          <ChevronDown
+            size={18}
+            className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      )}
+      {(open || fixed) && <div className="space-y-4 border-t border-slate-100 px-4 py-4">{children}</div>}
     </div>
   );
 }

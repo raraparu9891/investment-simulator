@@ -39,17 +39,29 @@ export interface Person {
   retirementAge: number;
   changes: WorkChange[];
   promotions: Promotion[];
+  severancePay: number; // 退職金（retirementAge の年に一括で受け取る。退職所得控除により概ね非課税とみなす）
   pensionStartAge: number;
   pensionAuto: boolean;
   pension: number; // pensionAuto=false 時の年金額（年）
 }
 
+export type LivingPreset = "luxury" | "average" | "saving";
+
+/** 基本生活費の1項目（月額で保持） */
+export interface LivingItem {
+  id: string;
+  key: string; // LIVING_CATEGORIES の key。ユーザー追加項目は "custom"
+  label: string;
+  monthly: number; // 万円/月
+  preset: LivingPreset | null; // 手入力したら null
+}
+
 export interface ExpenseSettings {
-  livingCost: number;
+  items: LivingItem[];
   inflationRate: number;
 }
 
-/** 変動金利: 現在から afterYears 年後に金利が rate% になる */
+/** 変動金利: 返済開始（返済中なら現在）から afterYears 年後に金利が rate% になる */
 export interface RateChange {
   id: string;
   afterYears: number;
@@ -58,10 +70,24 @@ export interface RateChange {
 
 export interface MortgageSettings {
   enabled: boolean;
-  balance: number; // 借入残高
+  startAge: number; // 借入（返済）開始年齢。現在の年齢以下なら返済中とみなす
+  balance: number; // 借入総額（返済中なら残高）
   years: number; // 残り返済期間
   rate: number; // 現在の金利（%/年）
   rateChanges: RateChange[];
+}
+
+/** 自動車の購入計画（startAge から interval 年ごとに買い替え） */
+export interface CarPlan {
+  id: string;
+  label: string;
+  price: number; // 車両価格（万円）
+  interval: number; // 何年ごとに買い替えるか
+  startAge: number; // 初回購入（本人の年齢）
+  endAge: number; // 最後に購入する年齢
+  payment: "cash" | "loan";
+  loanYears: number; // 支払期間（年）
+  loanRate: number; // ローン金利（%/年）
 }
 
 export interface Child {
@@ -130,12 +156,13 @@ export interface SimulationInput {
   spouse: Person;
   expense: ExpenseSettings;
   mortgage: MortgageSettings;
+  cars: CarPlan[];
   children: Child[];
   events: SpotEvent[];
   investment: InvestmentSettings;
 }
 
-export type EventKind = "retire" | "work" | "pension" | "school" | "spot" | "loan" | "rebalance";
+export type EventKind = "retire" | "work" | "pension" | "school" | "spot" | "loan" | "car" | "rebalance";
 export interface LifeEvent {
   kind: EventKind;
   text: string;
@@ -152,6 +179,7 @@ export interface YearCashflow {
   educationCost: number; // 学費＋塾・予備校・受験料
   loanPayment: number; // 住宅ローン年間返済額
   loanBalance: number; // 年末のローン残高
+  carCost: number; // 自動車（一括購入またはローン返済）
   spotCost: number;
   totalExpense: number;
   netCashflow: number;

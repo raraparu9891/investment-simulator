@@ -29,15 +29,11 @@ export default function PersonSection({
   title,
   person,
   onChange,
-  optional = false,
-  defaultOpen = false,
 }: {
   icon: LucideIcon;
   title: string;
   person: Person;
   onChange: (v: Partial<Person>) => void;
-  optional?: boolean;
-  defaultOpen?: boolean;
 }) {
   const tax = calculateNetIncomeDetail(person.grossIncome);
   const pension = estimatePension(person);
@@ -55,21 +51,17 @@ export default function PersonSection({
     <Section
       icon={icon}
       title={title}
-      defaultOpen={defaultOpen}
+      fixed
       badge={
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
           {person.enabled ? `額面${yen(person.grossIncome)}` : "なし"}
         </span>
       }
     >
-      {optional && (
-        <Toggle label="収入に含める" checked={person.enabled} onChange={(v) => onChange({ enabled: v })} />
-      )}
       {person.enabled && (
         <>
           <div className="grid grid-cols-2 gap-3">
-            <NumberField label="現在の年齢" unit="歳" min={18} max={90} value={person.currentAge}
-              onChange={(v) => onChange({ currentAge: v })} />
+            <div className="col-span-2 text-xs text-slate-500">現在 {person.currentAge}歳（年齢はステップ1で変更できます）</div>
             <SelectField label="働き方" value={person.employment} options={employmentOptions}
               onChange={(v) => onChange({ employment: v })} />
             <NumberField label="額面年収" unit="万円" step={10} value={person.grossIncome}
@@ -113,8 +105,13 @@ export default function PersonSection({
             )}
           </div>
 
-          <NumberField label="完全リタイア年齢" unit="歳" value={person.retirementAge}
-            onChange={(v) => onChange({ retirementAge: v })} hint="この年齢以降は就労収入 0" />
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField label="完全リタイア年齢" unit="歳" value={person.retirementAge}
+              onChange={(v) => onChange({ retirementAge: v })} hint="この年齢以降は就労収入 0" />
+            <NumberField label="退職金" unit="万円" step={100} min={0} value={person.severancePay ?? 0}
+              onChange={(v) => onChange({ severancePay: Math.max(0, v) })}
+              hint="リタイア年齢の年に一括で受け取る（退職所得控除で概ね非課税とみなす）" />
+          </div>
 
           {/* 昇進 */}
           <SubHeading>昇進による昇給（{title.replace(/の.*$/, "")}の年齢）</SubHeading>

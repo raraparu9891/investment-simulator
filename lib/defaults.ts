@@ -1,3 +1,4 @@
+import { presetItems } from "./living";
 import type { Person, SimulationInput } from "./types";
 
 let seq = 0;
@@ -14,6 +15,7 @@ const self: Person = {
   retirementAge: 65,
   changes: [{ id: "wc-1", age: 60, type: "jobchange", grossIncome: 450 }],
   promotions: [{ id: "pr-1", age: 42, mode: "increase", value: 100 }],
+  severancePay: 0,
   pensionStartAge: 65,
   pensionAuto: true,
   pension: 200,
@@ -30,6 +32,7 @@ const spouse: Person = {
   retirementAge: 60,
   changes: [{ id: "wc-2", age: 36, type: "parttime", grossIncome: 120 }],
   promotions: [],
+  severancePay: 0,
   pensionStartAge: 65,
   pensionAuto: true,
   pension: 80,
@@ -44,16 +47,30 @@ export const DEFAULT_INPUT: SimulationInput = {
   self,
   spouse,
   expense: {
-    livingCost: 420,
+    items: presetItems("average"),
     inflationRate: 2,
   },
   mortgage: {
     enabled: false,
+    startAge: 35,
     balance: 3000,
     years: 30,
     rate: 0.6,
     rateChanges: [{ id: "rc-1", afterYears: 5, rate: 1.5 }],
   },
+  cars: [
+    {
+      id: "car-1",
+      label: "1台目",
+      price: 300,
+      interval: 7,
+      startAge: 40,
+      endAge: 75,
+      payment: "cash",
+      loanYears: 5,
+      loanRate: 2.5,
+    },
+  ],
   children: [
     {
       id: "ch-1",
@@ -71,8 +88,7 @@ export const DEFAULT_INPUT: SimulationInput = {
     },
   ],
   events: [
-    { id: "ev-1", label: "車の買い替え", amount: 300, isRecurring: true, startAge: 40, endAge: 75, interval: 7 },
-    { id: "ev-2", label: "家族旅行", amount: 80, isRecurring: false, startAge: 45, endAge: 45, interval: 1 },
+    { id: "ev-2", label: "家族旅行", amount: 30, isRecurring: true, startAge: 35, endAge: 70, interval: 1 },
     { id: "ev-3", label: "住宅リフォーム", amount: 500, isRecurring: false, startAge: 60, endAge: 60, interval: 1 },
   ],
   investment: {
