@@ -2,7 +2,7 @@
 
 import { Plus, Trash2, Wallet } from "lucide-react";
 import { uid } from "@/lib/defaults";
-import { PRESET_LABEL, PRESET_ORDER, categoryOf, livingCostOf } from "@/lib/living";
+import { PRESET_LABEL, PRESET_ORDER, categoryOf, householdFactor, livingCostOf, presetAmount } from "@/lib/living";
 import type { LivingItem, LivingPreset } from "@/lib/types";
 import { AddButton, NumberField, TextField } from "../ui";
 import { Card, patcher, round1, round2, yen, type StepProps } from "./shared";
@@ -13,8 +13,9 @@ const PRESET_TONE: Record<LivingPreset, string> = {
   saving: "border-emerald-300 bg-emerald-600 text-white",
 };
 
-function LivingRow({ item, onChange, onRemove }: {
+function LivingRow({ item, factor, onChange, onRemove }: {
   item: LivingItem;
+  factor: number;
   onChange: (v: Partial<LivingItem>) => void;
   onRemove: () => void;
 }) {
@@ -35,14 +36,15 @@ function LivingRow({ item, onChange, onRemove }: {
         {cat ? (
           PRESET_ORDER.map((p) => {
             const on = item.preset === p;
+            const amount = presetAmount(cat.base, p, factor);
             return (
-              <button key={p} type="button" onClick={() => onChange({ monthly: cat.presets[p], preset: p })}
-                title={`月${cat.presets[p]}万円`}
+              <button key={p} type="button" onClick={() => onChange({ monthly: amount, preset: p })}
+                title={`月${amount}万円`}
                 className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   on ? PRESET_TONE[p] : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                 }`}>
                 {PRESET_LABEL[p]}
-                <span className={`ml-1 tabular-nums ${on ? "text-white/80" : "text-slate-400"}`}>{cat.presets[p]}</span>
+                <span className={`ml-1 tabular-nums ${on ? "text-white/80" : "text-slate-400"}`}>{amount}</span>
               </button>
             );
           })
@@ -71,6 +73,10 @@ export default function StepLiving({ input, setInput }: StepProps) {
   const patch = patcher(setInput);
   const { expense } = input;
   const annual = livingCostOf(expense);
+  const factor = householdFactor(input);
+  const household = ["本人", input.spouse.enabled && "配偶者", input.children.length > 0 && `子供${input.children.length}人`]
+    .filter(Boolean)
+    .join("＋");
   const setItems = (fn: (items: LivingItem[]) => LivingItem[]) =>
     setInput((p) => ({ ...p, expense: { ...p.expense, items: fn(p.expense.items) } }));
 
@@ -78,7 +84,7 @@ export default function StepLiving({ input, setInput }: StepProps) {
     setItems((items) =>
       items.map((x) => {
         const cat = categoryOf(x.key);
-        return cat ? { ...x, monthly: cat.presets[preset], preset } : x;
+        return cat ? { ...x, monthly: presetAmount(cat.base, preset, factor), preset } : x;
       }),
     );
 
@@ -86,6 +92,10 @@ export default function StepLiving({ input, setInput }: StepProps) {
     <div className="space-y-4">
       <Card icon={Wallet} title="毎月の基本生活費"
         note="項目ごとに「贅沢・平均・節約」を押すと相場額（月額、万円）が入ります。金額は直接書き換えてもOKです。住宅ローン・車・教育費は次以降のステップで入力します。">
+        <p className="text-xs text-slate-500">
+          現在の世帯構成（{household}、係数 {round1(factor)}）に基づく目安額を表示しています。
+          ステップ1で家族構成を変えると、手入力していない項目の金額も自動で変わります。
+        </p>
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2.5">
           <span className="text-xs font-medium text-slate-500">全項目をまとめて：</span>
           {PRESET_ORDER.map((p) => (
@@ -97,7 +107,7 @@ export default function StepLiving({ input, setInput }: StepProps) {
         </div>
         <div>
           {expense.items.map((item) => (
-            <LivingRow key={item.id} item={item}
+            <LivingRow key={item.id} item={item} factor={factor}
               onChange={(v) => setItems((items) => items.map((x) => (x.id === item.id ? { ...x, ...v } : x)))}
               onRemove={() => setItems((items) => items.filter((x) => x.id !== item.id))} />
           ))}

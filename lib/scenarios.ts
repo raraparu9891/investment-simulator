@@ -1,4 +1,5 @@
 import { DEFAULT_INPUT } from "./defaults";
+import { syncLivingPresets } from "./living";
 import type { Asset, Child, ExpenseSettings, InvestmentSettings, Person, SimulationInput, SpotEvent, Weights } from "./types";
 
 const STORAGE_KEY = "lifeplan-simulator.scenarios.v1";
@@ -132,7 +133,8 @@ export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
   const d = DEFAULT_INPUT;
   // 既定値のリバランス例は古いシナリオに混ぜない（normalizeInvestment 内で [] を補う）
   const inv = normalizeInvestment(raw.investment as LegacyInvestment | undefined);
-  return {
+  // プリセット選択中の生活費は、保存時の金額ではなく現在の世帯構成に基づく目安額に揃える
+  return syncLivingPresets({
     basic: { ...d.basic, ...raw.basic },
     self: mergePerson(raw.self, d.self),
     spouse: mergePerson(raw.spouse, d.spouse),
@@ -148,5 +150,5 @@ export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
       return { ...fill, ...rest, startAge: start };
     }),
     investment: inv,
-  };
+  });
 }

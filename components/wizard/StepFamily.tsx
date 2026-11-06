@@ -2,6 +2,7 @@
 
 import { Baby, HeartHandshake, Minus, Plus, User } from "lucide-react";
 import { uid } from "@/lib/defaults";
+import { syncLivingPresets } from "@/lib/living";
 import type { Child } from "@/lib/types";
 import { NumberField, TextField, Toggle } from "../ui";
 import { Card, patcher, type StepProps } from "./shared";
@@ -26,13 +27,13 @@ export default function StepFamily({ input, setInput }: StepProps) {
   const setCount = (n: number) =>
     setInput((p) => {
       const next = Math.max(0, Math.min(8, n));
-      if (next <= p.children.length) return { ...p, children: p.children.slice(0, next) };
+      if (next <= p.children.length) return syncLivingPresets({ ...p, children: p.children.slice(0, next) });
       const added = Array.from({ length: next - p.children.length }, (_, i) => ({
         ...NEW_CHILD,
         id: uid(),
         name: `第${p.children.length + i + 1}子`,
       }));
-      return { ...p, children: [...p.children, ...added] };
+      return syncLivingPresets({ ...p, children: [...p.children, ...added] });
     });
 
   return (
@@ -47,7 +48,7 @@ export default function StepFamily({ input, setInput }: StepProps) {
       </Card>
 
       <Card icon={HeartHandshake} title="配偶者">
-        <Toggle label="配偶者がいる" checked={spouse.enabled} onChange={(v) => patch("spouse", { enabled: v })} />
+        <Toggle label="配偶者がいる" checked={spouse.enabled} onChange={(v) => setInput((p) => syncLivingPresets({ ...p, spouse: { ...p.spouse, enabled: v } }))} />
         {spouse.enabled && (
           <div className="grid grid-cols-2 gap-3">
             <NumberField label="配偶者の年齢" unit="歳" min={18} max={90} value={spouse.currentAge}

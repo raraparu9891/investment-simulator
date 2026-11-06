@@ -1,4 +1,4 @@
-import { presetItems } from "./living";
+import { householdFactor, presetItems } from "./living";
 import type { Person, SimulationInput } from "./types";
 
 let seq = 0;
@@ -38,6 +38,23 @@ const spouse: Person = {
   pension: 80,
 };
 
+const children: SimulationInput["children"] = [
+  {
+    id: "ch-1",
+    name: "第一子",
+    currentAge: 3,
+    preschool: "public",
+    elementary: "public",
+    juniorHigh: "public",
+    highSchool: "public",
+    university: "private",
+    graduate: "none",
+    examJuniorHigh: false,
+    examHighSchool: true,
+    examUniversity: true,
+  },
+];
+
 export const DEFAULT_INPUT: SimulationInput = {
   basic: {
     endAge: 95,
@@ -47,7 +64,7 @@ export const DEFAULT_INPUT: SimulationInput = {
   self,
   spouse,
   expense: {
-    items: presetItems("average"),
+    items: presetItems("average", householdFactor({ spouse, children })),
     inflationRate: 2,
   },
   mortgage: {
@@ -71,22 +88,7 @@ export const DEFAULT_INPUT: SimulationInput = {
       loanRate: 2.5,
     },
   ],
-  children: [
-    {
-      id: "ch-1",
-      name: "第一子",
-      currentAge: 3,
-      preschool: "public",
-      elementary: "public",
-      juniorHigh: "public",
-      highSchool: "public",
-      university: "private",
-      graduate: "none",
-      examJuniorHigh: false,
-      examHighSchool: true,
-      examUniversity: true,
-    },
-  ],
+  children,
   events: [
     { id: "ev-2", label: "家族旅行", amount: 30, isRecurring: true, startAge: 35, endAge: 70, interval: 1 },
     { id: "ev-3", label: "住宅リフォーム", amount: 500, isRecurring: false, startAge: 60, endAge: 60, interval: 1 },
