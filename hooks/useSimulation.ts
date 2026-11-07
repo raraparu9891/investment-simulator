@@ -6,7 +6,7 @@ import { mixLabel, portfolioStats } from "@/lib/funds";
 import { carCostAt, carLoanTerms, purchaseAges } from "@/lib/car";
 import { livingCostOf } from "@/lib/living";
 import { loanSchedule } from "@/lib/loan";
-import { grossAt, netOf, pensionOf } from "@/lib/income";
+import { grossAt, incomePartsAt } from "@/lib/income";
 import { occursAt } from "@/lib/spot";
 import type {
   Asset,
@@ -36,8 +36,7 @@ const CHANGE_LABEL = { jobchange: "転職", parttime: "パート化", retire: "�
 
 function personYear(person: Person, age: number, who: string, events: LifeEvent[]) {
   if (!person.enabled) return 0;
-  const work = netOf(person, grossAt(person, age));
-  const pension = age >= person.pensionStartAge ? pensionOf(person) : 0;
+  const { work, pension, severance } = incomePartsAt(person, age);
 
   for (const c of person.changes) {
     if (c.age === age && c.age < person.retirementAge) {
@@ -54,7 +53,6 @@ function personYear(person: Person, age: number, who: string, events: LifeEvent[
     }
   }
   if (age === person.retirementAge) events.push({ kind: "retire", text: `${who} 完全リタイア` });
-  const severance = age === person.retirementAge ? Math.max(0, person.severancePay ?? 0) : 0;
   if (severance > 0) events.push({ kind: "retire", text: `${who} 退職金 ${yen(severance)}` });
   if (age === person.pensionStartAge) events.push({ kind: "pension", text: `${who} 年金受給開始` });
 

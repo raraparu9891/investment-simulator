@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowLeft, LineChart, Pencil, RotateCcw } from "lucide-react";
 import ResultPanel from "@/components/ResultPanel";
 import ScenarioBar from "@/components/ScenarioBar";
+import PreviewPanel from "@/components/wizard/PreviewPanel";
 import Wizard, { STEPS } from "@/components/wizard/Wizard";
 import { useSimulation } from "@/hooks/useSimulation";
 import { DEFAULT_INPUT } from "@/lib/defaults";
@@ -78,9 +79,19 @@ export default function Home() {
       </header>
 
       {view === "wizard" ? (
-        <main className="mx-auto max-w-3xl space-y-4 px-4 py-5">
+        <main className="mx-auto max-w-[1400px] space-y-4 px-4 py-5">
           <ScenarioBar input={input} onLoad={setInput} />
-          <Wizard input={input} setInput={setInput} step={step} setStep={(s) => go("wizard", s)} onRun={() => go("result")} />
+          {/* PC: 左に入力、右にプレビュー（スクロールしても追従）／スマホ: プレビューを入力の上に折りたたんで置く */}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-6">
+            <div className="min-w-0">
+              <Wizard input={input} setInput={setInput} step={step} setStep={(s) => go("wizard", s)} onRun={() => go("result")} />
+            </div>
+            <aside className="order-first lg:order-none">
+              <div className="lg:sticky lg:top-20">
+                <PreviewPanel input={input} step={step} />
+              </div>
+            </aside>
+          </div>
         </main>
       ) : (
         <main className="mx-auto max-w-[1400px] px-4 py-5">

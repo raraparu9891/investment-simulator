@@ -168,3 +168,13 @@ export function estimatePension(person: Person): PensionEstimate {
 export function pensionOf(person: Person) {
   return person.pensionAuto ? estimatePension(person).total : person.pension;
 }
+
+/** 指定年齢の収入の内訳（手取り・年金・退職金、万円/年） */
+export function incomePartsAt(person: Person, age: number) {
+  if (!person.enabled) return { work: 0, pension: 0, severance: 0 };
+  return {
+    work: netOf(person, grossAt(person, age)),
+    pension: age >= person.pensionStartAge ? pensionOf(person) : 0,
+    severance: age === person.retirementAge ? Math.max(0, person.severancePay ?? 0) : 0,
+  };
+}
