@@ -6,6 +6,7 @@ import { uid } from "@/lib/defaults";
 import type { CarPlan } from "@/lib/types";
 import MortgageSection from "../MortgageSection";
 import { AddButton, ItemCard, NumberField, TextField } from "../ui";
+import SpotEventsSection from "./SpotEventsSection";
 import { Card, Pills, patcher, yen, type StepProps } from "./shared";
 
 function CarCard({ car, onChange, onRemove }: {
@@ -95,6 +96,8 @@ export default function StepHousingCar({ input, setInput }: StepProps) {
           <Plus size={16} /> 車を追加
         </AddButton>
       </Card>
+
+      <SpotEventsSection input={input} setInput={setInput} />
     </div>
   );
 }

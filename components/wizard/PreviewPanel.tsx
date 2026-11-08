@@ -80,12 +80,13 @@ function PreviewTooltip({ active, payload, series, events, total }: TooltipProps
   );
 }
 
-function StackedChart({ rows, series, events, total, retirementAge }: {
+function StackedChart({ rows, series, events, total, retirementAge, highlight }: {
   rows: PreviewRow[];
   series: Series[];
   events: EventKind[];
   total: { key: keyof PreviewRow; label: string };
   retirementAge: number;
+  highlight?: (keyof PreviewRow)[]; // 指定した系列以外を薄く表示する
 }) {
   // 値がずっと 0 の系列は凡例ごと出さない
   const visible = series.filter((s) => rows.some((r) => (r[s.key] as number) > 0));
@@ -101,6 +102,7 @@ function StackedChart({ rows, series, events, total, retirementAge }: {
           <ReferenceLine x={retirementAge} stroke="#64748b" strokeDasharray="6 4" />
           {visible.map((s, i) => (
             <Bar key={s.key} dataKey={s.key} name={s.name} stackId="a" fill={s.color} stroke="#fff" strokeWidth={0.5}
+              fillOpacity={!highlight || highlight.includes(s.key) ? 1 : 0.25}
               radius={i === visible.length - 1 ? [3, 3, 0, 0] : undefined} {...ANIM} />
           ))}
         </BarChart>
@@ -188,19 +190,20 @@ function Totals({ summary, kind }: { summary: PreviewSummary; kind: "income" | "
   );
 }
 
-const VIEW: Record<number, { title: string; note: string }> = {
-  0: { title: "家族のサマリー", note: "入力した家族構成の確認です。" },
-  1: { title: "収入の推移", note: "世帯の手取り収入（年金・退職金を含む）の積み上げです。" },
-  2: { title: "支出の推移", note: "支出の内訳の積み上げです。生活費はインフレ率で毎年増えます。" },
-  5: { title: "年間の収支", note: "収入 − 支出（運用前）。赤い年は貯蓄や運用資産の取り崩しが必要です。" },
-};
-const viewOf = (step: number) => VIEW[step >= 2 && step <= 4 ? 2 : step];
+const VIEW: { title: string; note: string; highlight?: (keyof PreviewRow)[] }[] = [
+  { title: "家族のサマリー", note: "入力した家族構成の確認です。" },
+  { title: "収入の推移", note: "世帯の手取り収入（年金・退職金を含む）の積み上げです。" },
+  { title: "支出の推移", note: "基本生活費を強調表示しています。生活費はインフレ率で毎年増えます。", highlight: ["livingCost"] },
+  { title: "支出の推移", note: "住宅ローン・自動車・特別費を強調表示しています。", highlight: ["loanPayment", "carCost", "spotCost"] },
+  { title: "支出の推移", note: "教育費（学費・塾代・受験料）を強調表示しています。", highlight: ["educationCost"] },
+  { title: "年間の収支", note: "収入 − 支出（運用前）。赤い年は貯蓄や運用資産の取り崩しが必要です。" },
+];
 
 /** ウィザード横のプレビュー。PC では常に表示、スマホでは折りたためる */
 export default function PreviewPanel({ input, step }: { input: SimulationInput; step: number }) {
   const [open, setOpen] = useState(false);
   const { rows, summary } = usePreviewData(input);
-  const view = viewOf(step);
+  const view = VIEW[step];
   const retirementAge = input.self.retirementAge;
 
   return (
@@ -226,7 +229,7 @@ export default function PreviewPanel({ input, step }: { input: SimulationInput; 
         {step >= 2 && step <= 4 && (
           <>
             <StackedChart rows={rows} series={EXPENSE_SERIES} events={EXPENSE_EVENTS}
-              total={{ key: "totalExpense", label: "支出合計" }} retirementAge={retirementAge} />
+              total={{ key: "totalExpense", label: "支出合計" }} retirementAge={retirementAge} highlight={view.highlight} />
             <Totals summary={summary} kind="expense" />
           </>
         )}
