@@ -11,28 +11,34 @@ export const PRESET_ORDER: LivingPreset[] = ["luxury", "average", "saving"];
 /** 「平均」に対する「贅沢」「節約」の倍率 */
 const PRESET_RATIO: Record<LivingPreset, number> = { luxury: 1.4, average: 1, saving: 0.7 };
 
+export type LivingGroup = "variable" | "fixed";
+
+export const LIVING_GROUPS: { key: LivingGroup; label: string; note: string }[] = [
+  { key: "variable", label: "A. 基本生活費（変動費）", note: "暮らし方で大きく変わる支出" },
+  { key: "fixed", label: "B. 固定費", note: "毎月ほぼ一定の支出" },
+];
+
 /**
  * 基本生活費の項目と、単身世帯の平均的な月額（万円/月）。
- * 総務省「家計調査」（単身世帯）などを参考にした概算で、合計は月14.5万円。
- * 住宅ローン・自動車・教育費は別ステップで扱うので含めない。
+ * 総務省「家計調査」（単身世帯）などを参考にした概算で、合計は月17万円（変動費 12.1・固定費 4.9）。
+ * どの項目にも世帯構成係数を掛ける。住宅ローン・自動車・教育費は別ステップで扱うので含めない。
  */
 export const LIVING_CATEGORIES: {
   key: string;
+  group: LivingGroup;
   label: string;
   hint: string;
   base: number;
 }[] = [
-  { key: "food", label: "食費", hint: "外食・お弁当を含む", base: 4 },
-  { key: "utility", label: "水道光熱費", hint: "電気・ガス・水道", base: 1.2 },
-  { key: "telecom", label: "通信費", hint: "スマホ・ネット回線・サブスク", base: 0.7 },
-  { key: "daily", label: "日用品", hint: "洗剤・消耗品など", base: 0.5 },
-  { key: "allowance", label: "小遣い", hint: "家族全員の合計", base: 2 },
-  { key: "housing", label: "住居費（ローン以外）", hint: "家賃・管理費・固定資産税など", base: 2 },
-  { key: "insurance", label: "保険料", hint: "生命保険・医療保険など", base: 1 },
-  { key: "clothing", label: "被服・美容", hint: "衣類・理美容", base: 0.6 },
-  { key: "medical", label: "医療費", hint: "通院・薬代", base: 0.5 },
-  { key: "leisure", label: "趣味・交際・娯楽", hint: "レジャー・交際費", base: 1.5 },
-  { key: "other", label: "その他", hint: "予備費・雑費", base: 0.5 },
+  { key: "food", group: "variable", label: "食費", hint: "外食・お弁当を含む", base: 4 },
+  { key: "daily", group: "variable", label: "日用品費", hint: "洗剤・消耗品など", base: 0.5 },
+  { key: "allowance", group: "variable", label: "小遣い", hint: "被服・交際・娯楽費を含む（家族全員の合計）", base: 6 },
+  { key: "medical", group: "variable", label: "医療費", hint: "通院・薬代", base: 0.6 },
+  { key: "travel", group: "variable", label: "旅行費用", hint: "旅行・帰省（単身の目安は年12万円＝月1万円）", base: 1 },
+  { key: "utility", group: "fixed", label: "水道光熱費", hint: "電気・ガス・水道", base: 1.2 },
+  { key: "telecom", group: "fixed", label: "通信費", hint: "スマホ・ネット回線・サブスク", base: 0.7 },
+  { key: "housing", group: "fixed", label: "住居費（ローン以外）", hint: "家賃・管理費・固定資産税など", base: 2 },
+  { key: "insurance", group: "fixed", label: "保険料", hint: "生命保険・医療保険など", base: 1 },
 ];
 
 export const categoryOf = (key: string) => LIVING_CATEGORIES.find((c) => c.key === key);
@@ -57,6 +63,22 @@ export function presetItems(preset: LivingPreset, factor: number): LivingItem[] 
     monthly: presetAmount(c.base, preset, factor),
     preset,
   }));
+}
+
+// 旧バージョンの項目。プリセットのままなら小遣いに吸収されたとみなして捨てる
+const RETIRED_KEYS = ["clothing", "leisure", "other"];
+
+/**
+ * 旧バージョンで保存した生活費の項目を現在の項目構成に揃える。
+ * 廃止した項目は、プリセットのままなら削除、手入力なら追加項目として残す。足りない項目は「平均」で補う。
+ */
+export function migrateLivingItems(items: LivingItem[], factor: number): LivingItem[] {
+  const kept = items.flatMap((x) => {
+    if (!RETIRED_KEYS.includes(x.key)) return [x];
+    return x.preset ? [] : [{ ...x, key: "custom" }];
+  });
+  const missing = presetItems("average", factor).filter((d) => !kept.some((x) => x.key === d.key));
+  return [...kept, ...missing];
 }
 
 /** 家族構成の変更に合わせて、プリセット選択中の項目の金額を再計算する（手入力の項目はそのまま） */

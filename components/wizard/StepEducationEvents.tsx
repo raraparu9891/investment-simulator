@@ -77,7 +77,7 @@ export default function StepEducationEvents({ input, setInput }: StepProps) {
       events: [
         ...p.events,
         recurring
-          ? { id: uid(), label: "家族旅行", amount: 30, isRecurring: true, startAge: p.self.currentAge, endAge: Math.min(70, p.basic.endAge), interval: 1 }
+          ? { id: uid(), label: "家電の買い替え", amount: 30, isRecurring: true, startAge: p.self.currentAge, endAge: Math.min(80, p.basic.endAge), interval: 5 }
           : { id: uid(), label: "新しい支出", amount: 100, isRecurring: false, startAge: p.self.currentAge + 5, endAge: p.self.currentAge + 5, interval: 5 },
       ],
     }));
@@ -126,7 +126,7 @@ export default function StepEducationEvents({ input, setInput }: StepProps) {
       </Card>
 
       <Card icon={Repeat} title="繰り返し発生する支出" badge={<Badge>{recurring.length}件</Badge>}
-        note="家族旅行・家電の買い替え・帰省など、毎年や数年ごとに発生する支出。">
+        note="家電の買い替え・家のメンテナンスなど、数年ごとに発生する支出。旅行・帰省はステップ3の「旅行費用」で毎年計上します。">
         {recurring.map((ev) => (
           <SpotCard key={ev.id} ev={ev} onChange={(v) => updateEvent(ev.id, v)} onRemove={() => removeEvent(ev.id)} />
         ))}

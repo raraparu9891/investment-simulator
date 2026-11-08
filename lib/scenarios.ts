@@ -1,5 +1,5 @@
 import { DEFAULT_INPUT } from "./defaults";
-import { syncLivingPresets } from "./living";
+import { householdFactor, migrateLivingItems, syncLivingPresets } from "./living";
 import type { Asset, Child, ExpenseSettings, InvestmentSettings, Person, SimulationInput, SpotEvent, Weights } from "./types";
 
 const STORAGE_KEY = "lifeplan-simulator.scenarios.v1";
@@ -116,10 +116,10 @@ function normalizeInvestment(raw: LegacyInvestment | undefined): InvestmentSetti
 const mergePerson = (p: Partial<Person> | undefined, d: Person): Person => ({ ...d, severancePay: 0, ...p });
 
 /** 旧形式（年間生活費1項目）は「以前の設定」1行に移す */
-function normalizeExpense(raw: (Partial<ExpenseSettings> & { livingCost?: number }) | undefined): ExpenseSettings {
+function normalizeExpense(raw: (Partial<ExpenseSettings> & { livingCost?: number }) | undefined, factor: number): ExpenseSettings {
   const d = DEFAULT_INPUT.expense;
   if (!raw) return d;
-  if (Array.isArray(raw.items)) return { ...d, ...raw, items: raw.items };
+  if (Array.isArray(raw.items)) return { ...d, ...raw, items: migrateLivingItems(raw.items, factor) };
   return {
     inflationRate: raw.inflationRate ?? d.inflationRate,
     items: [{ id: "lv-legacy", key: "custom", label: "生活費（以前の設定）", monthly: (raw.livingCost ?? 0) / 12, preset: null }],
@@ -133,16 +133,18 @@ export function normalizeInput(raw: Partial<SimulationInput>): SimulationInput {
   const d = DEFAULT_INPUT;
   // 既定値のリバランス例は古いシナリオに混ぜない（normalizeInvestment 内で [] を補う）
   const inv = normalizeInvestment(raw.investment as LegacyInvestment | undefined);
+  const spouse = mergePerson(raw.spouse, d.spouse);
+  const children = (raw.children ?? d.children).map((c) => ({ ...CHILD_FILL, ...c }));
   // プリセット選択中の生活費は、保存時の金額ではなく現在の世帯構成に基づく目安額に揃える
   return syncLivingPresets({
     basic: { ...d.basic, ...raw.basic },
     self: mergePerson(raw.self, d.self),
-    spouse: mergePerson(raw.spouse, d.spouse),
-    expense: normalizeExpense(raw.expense),
+    spouse,
+    expense: normalizeExpense(raw.expense, householdFactor({ spouse, children })),
     mortgage: { ...d.mortgage, enabled: false, startAge: raw.self?.currentAge ?? d.self.currentAge, ...raw.mortgage },
     // 旧バージョンでは車はスポット支出として入力されているので、既定の車は足さない
     cars: raw.cars ?? [],
-    children: (raw.children ?? d.children).map((c) => ({ ...CHILD_FILL, ...c })),
+    children,
     events: (raw.events ?? d.events).map((e) => {
       const { age, ...rest } = e as SpotEvent & { age?: number };
       const start = rest.startAge ?? age ?? d.self.currentAge;

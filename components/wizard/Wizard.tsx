@@ -25,7 +25,7 @@ export const STEPS: { short: string; title: string; lead: string; icon: LucideIc
   { short: "収入", title: "収入", lead: "手取り・昇進・退職金・年金など、これからの収入を設定します。", icon: Banknote },
   { short: "生活費", title: "基本生活費", lead: "毎月の生活費を項目ごとに。ボタン1つで相場額が入ります。", icon: Wallet },
   { short: "住宅・車", title: "住宅ローンと自動車", lead: "大きな買い物は、生活費とは別に計算します。", icon: Car },
-  { short: "教育・イベント", title: "教育費とライフイベント", lead: "進路・受験と、旅行や特別な支出を設定します。", icon: GraduationCap },
+  { short: "教育・イベント", title: "教育費とライフイベント", lead: "進路・受験と、数年ごとや一度きりの特別な支出を設定します。", icon: GraduationCap },
   { short: "資産運用", title: "資産運用と防衛戦略", lead: "いまの資産と、これからの積立・守り方を決めましょう。", icon: TrendingUp },
 ];
 

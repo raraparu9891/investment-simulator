@@ -2,7 +2,7 @@
 
 import { Plus, Trash2, Wallet } from "lucide-react";
 import { uid } from "@/lib/defaults";
-import { PRESET_LABEL, PRESET_ORDER, categoryOf, householdFactor, livingCostOf, presetAmount } from "@/lib/living";
+import { LIVING_GROUPS, PRESET_LABEL, PRESET_ORDER, categoryOf, householdFactor, livingCostOf, presetAmount } from "@/lib/living";
 import type { LivingItem, LivingPreset } from "@/lib/types";
 import { AddButton, NumberField, TextField } from "../ui";
 import { Card, patcher, round1, round2, yen, type StepProps } from "./shared";
@@ -77,6 +77,10 @@ export default function StepLiving({ input, setInput }: StepProps) {
   const household = ["本人", input.spouse.enabled && "配偶者", input.children.length > 0 && `子供${input.children.length}人`]
     .filter(Boolean)
     .join("＋");
+  const sections = [
+    ...LIVING_GROUPS.map((g) => ({ ...g, items: expense.items.filter((x) => categoryOf(x.key)?.group === g.key) })),
+    { label: "追加した項目", note: "自由に追加した支出", items: expense.items.filter((x) => !categoryOf(x.key)) },
+  ];
   const setItems = (fn: (items: LivingItem[]) => LivingItem[]) =>
     setInput((p) => ({ ...p, expense: { ...p.expense, items: fn(p.expense.items) } }));
 
@@ -105,13 +109,22 @@ export default function StepLiving({ input, setInput }: StepProps) {
             </button>
           ))}
         </div>
-        <div>
-          {expense.items.map((item) => (
-            <LivingRow key={item.id} item={item} factor={factor}
-              onChange={(v) => setItems((items) => items.map((x) => (x.id === item.id ? { ...x, ...v } : x)))}
-              onRemove={() => setItems((items) => items.filter((x) => x.id !== item.id))} />
-          ))}
-        </div>
+        {sections.map((sec) => sec.items.length > 0 && (
+          <div key={sec.label}>
+            <div className="flex items-baseline gap-2 border-b border-slate-200 pb-1">
+              <h4 className="text-sm font-bold text-slate-800">{sec.label}</h4>
+              <span className="text-[11px] text-slate-400">{sec.note}</span>
+              <span className="ml-auto text-xs tabular-nums text-slate-500">
+                月 {round1(sec.items.reduce((s, x) => s + x.monthly, 0))}万円
+              </span>
+            </div>
+            {sec.items.map((item) => (
+              <LivingRow key={item.id} item={item} factor={factor}
+                onChange={(v) => setItems((items) => items.map((x) => (x.id === item.id ? { ...x, ...v } : x)))}
+                onRemove={() => setItems((items) => items.filter((x) => x.id !== item.id))} />
+            ))}
+          </div>
+        ))}
         <AddButton onClick={() => setItems((items) => [...items, { id: uid(), key: "custom", label: "その他の項目", monthly: 1, preset: null }])}>
           <Plus size={16} /> 項目を追加
         </AddButton>

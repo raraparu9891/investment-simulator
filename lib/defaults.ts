@@ -90,7 +90,6 @@ export const DEFAULT_INPUT: SimulationInput = {
   ],
   children,
   events: [
-    { id: "ev-2", label: "家族旅行", amount: 30, isRecurring: true, startAge: 35, endAge: 70, interval: 1 },
     { id: "ev-3", label: "住宅リフォーム", amount: 500, isRecurring: false, startAge: 60, endAge: 60, interval: 1 },
   ],
   investment: {
