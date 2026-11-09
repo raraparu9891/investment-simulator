@@ -40,7 +40,9 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import type { ReachMatrix } from "@/hooks/useSimulation";
 import type { EventKind, SimulationSummary, YearResult } from "@/lib/types";
+import ReachHeatmap from "./ReachHeatmap";
 import { formatMan } from "./ui";
 
 // 系列色（dataviz リファレンスパレットの固定順スロット）
@@ -268,11 +270,13 @@ function Segmented<T extends string>({ value, onChange, items }: {
 export default function ResultPanel({
   rows,
   summary,
+  reach,
   retirementAge,
   onReroll,
 }: {
   rows: YearResult[];
   summary: SimulationSummary;
+  reach: ReachMatrix;
   retirementAge: number;
   onReroll: () => void;
 }) {
@@ -307,6 +311,8 @@ export default function ResultPanel({
           tone={success >= 80 ? "good" : success >= 50 ? "warn" : "bad"}
           sub={summary.depletionAge !== null ? `固定リターンでは ${summary.depletionAge}歳で枯渇` : `${summary.trials}回の試行`} />
       </div>
+
+      <ReachHeatmap matrix={reach} trials={summary.trials} />
 
       <div className="flex flex-wrap items-center gap-2">
         <Segmented value={tab} onChange={setTab}

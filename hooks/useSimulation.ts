@@ -331,6 +331,95 @@ function percentile(sorted: number[], p: number) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
 }
 
+/**
+ * モンテカルロの各試行・各年の総資産（現預金＋運用資産、万円）。totals[trial][t]
+ * 初期資産を引数で受け取るので、「もし今の資産が X 万円だったら」の仮定でも回せる。
+ */
+function monteCarloTotals(
+  cashflows: YearCashflow[],
+  phases: Phase[],
+  minCash: number,
+  initialCash: number,
+  initialInvested: number,
+  normals: Float64Array[],
+): Float64Array[] {
+  return normals.map((z) => {
+    const path = projectAssets(cashflows, phases, minCash, initialCash, initialInvested, (t) => {
+      // リスクを加重平均で求める＝資産間の相関を 1 とみなす前提なので、2口座とも同じ乱数で動かす
+      const p = phases[t];
+      const zt = z[t] ?? 0;
+      return [Math.exp(p.driftA + p.sA * zt) - 1, Math.exp(p.driftB + p.sB * zt) - 1];
+    });
+    return Float64Array.from(path, (p) => p.cash + p.invested);
+  });
+}
+
+/** 仮定の金融資産を、現預金（最低維持ラインまで）と運用資産に振り分ける */
+function splitAssets(currentAssets: number, minCash: number) {
+  const cash = Math.min(Math.max(0, currentAssets), minCash);
+  return { cash, invested: Math.max(0, currentAssets - cash) };
+}
+
+/** 指定した時点（t 年後）で総資産が target 以上になっている試行の割合 (0-1) */
+function reachRate(totals: Float64Array[], t: number, target: number) {
+  if (totals.length === 0) return 0;
+  return totals.filter((row) => (row[t] ?? -Infinity) >= target).length / totals.length;
+}
+
+/**
+ * 初期資産を currentAssets 万円と仮定したとき、targetAge 歳の時点で総資産が target 万円に届く確率 (0-1)。
+ * 収入・支出・積立などのキャッシュフローは入力どおり。
+ */
+export function reachProbability(
+  input: SimulationInput,
+  cashflows: YearCashflow[],
+  normals: Float64Array[],
+  { currentAssets, targetAge, target }: { currentAssets: number; targetAge: number; target: number },
+) {
+  const t = targetAge - input.self.currentAge;
+  if (t < 0 || t >= cashflows.length) return 0;
+  const minCash = Math.max(0, finite(input.investment.minCashReserve ?? 0));
+  const { cash, invested } = splitAssets(currentAssets, minCash);
+  const totals = monteCarloTotals(cashflows, buildPhases(input, cashflows), minCash, cash, invested, normals);
+  return reachRate(totals, t, target);
+}
+
+export const REACH_TARGET = 10000; // 1億円（万円）
+export const REACH_ASSETS = [0, 500, 1000, 2000, 3000, 5000];
+export const REACH_YEARS = [5, 10, 15, 20, 25, 30];
+
+export interface ReachMatrix {
+  target: number;
+  currentAge: number;
+  actualAssets: number; // 入力した現在の金融資産（現預金＋運用資産）
+  ages: number[]; // 列: 対象年齢（計算期間内のものだけ）
+  rows: { assets: number; rates: number[] }[]; // 行: 仮定の初期資産。rates[i] は ages[i] での到達確率 (0-1)
+}
+
+/** 初期資産 × 年齢 の目標到達確率の表。初期資産ごとにモンテカルロを1回ずつ回す */
+export function buildReachMatrix(
+  input: SimulationInput,
+  cashflows: YearCashflow[],
+  normals: Float64Array[],
+  target = REACH_TARGET,
+): ReachMatrix {
+  const currentAge = input.self.currentAge;
+  const years = REACH_YEARS.filter((y) => y < cashflows.length);
+  const minCash = Math.max(0, finite(input.investment.minCashReserve ?? 0));
+  const phases = buildPhases(input, cashflows);
+  return {
+    target,
+    currentAge,
+    actualAssets: input.basic.cashAssets + input.basic.investedAssets,
+    ages: years.map((y) => currentAge + y),
+    rows: REACH_ASSETS.map((assets) => {
+      const { cash, invested } = splitAssets(assets, minCash);
+      const totals = monteCarloTotals(cashflows, phases, minCash, cash, invested, normals);
+      return { assets, rates: years.map((y) => reachRate(totals, y, target)) };
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 4. 出力フォーマットの検証
 // ---------------------------------------------------------------------------
@@ -378,25 +467,10 @@ export function runSimulation(
   const minCash = Math.max(0, finite(investment.minCashReserve ?? 0));
   const base = projectAssets(cashflows, phases, minCash, basic.cashAssets, basic.investedAssets, (t) => [phases[t].muA, phases[t].muB]);
 
-  const totalsByYear: number[][] = cashflows.map(() => []);
-  let successes = 0;
-  for (const z of normals) {
-    const path = projectAssets(cashflows, phases, minCash, basic.cashAssets, basic.investedAssets, (t) => {
-      // リスクを加重平均で求める＝資産間の相関を 1 とみなす前提なので、2口座とも同じ乱数で動かす
-      const p = phases[t];
-      const zt = z[t] ?? 0;
-      return [Math.exp(p.driftA + p.sA * zt) - 1, Math.exp(p.driftB + p.sB * zt) - 1];
-    });
-    let ok = true;
-    path.forEach((p, t) => {
-      const total = p.cash + p.invested;
-      totalsByYear[t].push(total);
-      if (total < 0) ok = false;
-    });
-    if (ok) successes++;
-  }
-  const bands = totalsByYear.map((vals) => {
-    const s = [...vals].sort((a, b) => a - b);
+  const totals = monteCarloTotals(cashflows, phases, minCash, basic.cashAssets, basic.investedAssets, normals);
+  const successes = totals.filter((row) => row.every((v) => v >= 0)).length;
+  const bands = cashflows.map((_, t) => {
+    const s = totals.map((row) => row[t]).sort((a, b) => a - b);
     return {
       minus2: percentile(s, P_MINUS_2SIGMA),
       median: percentile(s, 0.5),
@@ -453,5 +527,7 @@ export function useSimulation(input: SimulationInput, seed: number) {
     () => generateNormals(MC_TRIALS, cashflows.length, seed),
     [cashflows.length, seed],
   );
-  return useMemo(() => runSimulation(input, cashflows, normals), [input, cashflows, normals]);
+  const result = useMemo(() => runSimulation(input, cashflows, normals), [input, cashflows, normals]);
+  const reach = useMemo(() => buildReachMatrix(input, cashflows, normals), [input, cashflows, normals]);
+  return { ...result, reach };
 }

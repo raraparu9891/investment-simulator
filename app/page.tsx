@@ -13,7 +13,7 @@ import type { SimulationInput } from "@/lib/types";
 /** 結果画面。マウントされている間だけシミュレーションを計算する */
 function ResultView({ input, onEdit }: { input: SimulationInput; onEdit: (step: number) => void }) {
   const [seed, setSeed] = useState(20261027);
-  const { rows, summary } = useSimulation(input, seed);
+  const { rows, summary, reach } = useSimulation(input, seed);
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-3">
@@ -32,6 +32,7 @@ function ResultView({ input, onEdit }: { input: SimulationInput; onEdit: (step: 
       <ResultPanel
         rows={rows}
         summary={summary}
+        reach={reach}
         retirementAge={input.self.retirementAge}
         onReroll={() => setSeed((s) => (s * 1103515245 + 12345) >>> 0)}
       />
